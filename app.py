@@ -9,7 +9,7 @@ from threading import Thread
 import time
 
 # ========== إعدادات البوت ==========
-BOT_TOKEN = "7609064550:AAH0X2b8j3l4Yh7K9L0qQqN9mR7sT7u8v9E"  # غير هذا بتوكن بوتك
+BOT_TOKEN = "7388387809:AAHgsBR0z-avEVjjN2boGyXXwO2TR_T7hXA"  # غير هذا بتوكن بوتك
 PORT = int(os.environ.get('PORT', 5000))
 
 # ========== إعداد Flask ==========
