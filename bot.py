@@ -27,7 +27,6 @@ def home():
                 .container {{ max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }}
                 .status {{ color: #22c55e; font-weight: bold; font-size: 20px; margin: 20px 0; }}
                 .info {{ color: #666; margin: 10px 0; font-size: 16px; }}
-                .btn {{ display: inline-block; padding: 10px 20px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin: 10px; }}
             </style>
         </head>
         <body>
@@ -35,9 +34,7 @@ def home():
                 <h1 style="color: #333;">🤖 Telegram Invoice Bot</h1>
                 <p class="status">✅ البوت يعمل بنجاح!</p>
                 <p class="info">⏰ آخر تحديث: {current_time}</p>
-                <p class="info">🌐 البوت نشط 24/7 على Render</p>
-                <p class="info">🚀 إصدار 2.0 - واجهة تفاعلية متقدمة</p>
-                <a href="https://t.me/your_bot" class="btn">💬 ابدأ المحادثة</a>
+                <p class="info">🌐 نظام الحذف التلقائي نشط</p>
             </div>
         </body>
     </html>
@@ -45,7 +42,7 @@ def home():
 
 @app.route('/health')
 def health():
-    return {"status": "healthy", "timestamp": str(datetime.now()), "version": "2.0"}
+    return {"status": "healthy", "timestamp": str(datetime.now()), "deletion_system": "active"}
 
 def run_web_server():
     port = int(os.environ.get('PORT', 10000))
@@ -58,7 +55,7 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ADMIN_ID = os.environ.get('ADMIN_ID')
 
 # حالات المحادثة
-SETTING_DURATION, SETTING_UNIT, CUSTOM_DURATION = range(3)
+CUSTOM_DURATION = 1
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -67,45 +64,56 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==========================================
-# قاعدة البيانات
+# قاعدة البيانات المتقدمة
 # ==========================================
 def init_db():
     conn = sqlite3.connect('invoices.db', check_same_thread=False)
     cursor = conn.cursor()
+    
+    # جدول الرسائل مع تفاصيل الوقت
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS invoices (
+        CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            message_id INTEGER,
-            chat_id INTEGER,
+            message_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
             content TEXT,
             file_type TEXT,
+            message_date TIMESTAMP NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            delete_at TIMESTAMP,
-            is_deleted BOOLEAN DEFAULT FALSE
+            delete_at TIMESTAMP NOT NULL,
+            is_deleted BOOLEAN DEFAULT FALSE,
+            delete_reason TEXT
         )
     ''')
+    
+    # جدول الإعدادات
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
         )
     ''')
+    
+    # جدول سجل الحذف
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_stats (
-            user_id INTEGER PRIMARY KEY,
-            messages_count INTEGER DEFAULT 0,
-            last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        CREATE TABLE IF NOT EXISTS deletion_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER,
+            chat_id INTEGER,
+            deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            reason TEXT
         )
     ''')
     
+    # الإعدادات الافتراضية
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('delete_duration', '1440')")
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('delete_unit', 'minutes')")
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_delete_enabled', 'true')")
-    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('notifications_enabled', 'true')")
     
     conn.commit()
     conn.close()
-    logger.info("✅ قاعدة البيانات مهيأة")
+    logger.info("✅ قاعدة البيانات المهيأة مع نظام التوقيت المتقدم")
 
 def get_setting(key, default=None):
     conn = sqlite3.connect('invoices.db', check_same_thread=False)
@@ -125,33 +133,84 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
-def update_user_stats(user_id):
-    conn = sqlite3.connect('invoices.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR REPLACE INTO user_stats (user_id, messages_count, last_active)
-        VALUES (?, COALESCE((SELECT messages_count FROM user_stats WHERE user_id = ?), 0) + 1, CURRENT_TIMESTAMP)
-    ''', (user_id, user_id))
-    conn.commit()
-    conn.close()
-
 # ==========================================
-# دوال المساعدة
+# نظام التوقيت والحذف المتقدم
 # ==========================================
-def calculate_delete_time():
+def calculate_delete_time(message_date):
+    """حساب وقت الحذف بناءً على وقت الرسالة والمدة المحددة"""
     duration = int(get_setting('delete_duration', 1440))
     unit = get_setting('delete_unit', 'minutes')
     
+    # حساب المدة المضافة بناءً على الوحدة
     if unit == 'seconds':
-        return timedelta(seconds=duration)
+        delete_delta = timedelta(seconds=duration)
     elif unit == 'minutes':
-        return timedelta(minutes=duration)
+        delete_delta = timedelta(minutes=duration)
     elif unit == 'hours':
-        return timedelta(hours=duration)
+        delete_delta = timedelta(hours=duration)
     elif unit == 'days':
-        return timedelta(days=duration)
+        delete_delta = timedelta(days=duration)
     else:
-        return timedelta(minutes=1440)
+        delete_delta = timedelta(minutes=1440)
+    
+    # وقت الحذف = وقت الرسالة + المدة المحددة
+    delete_at = message_date + delete_delta
+    return delete_at
+
+def get_time_remaining(delete_at):
+    """حساب الوقت المتبقي للحذف"""
+    now = datetime.now()
+    remaining = delete_at - now
+    
+    if remaining.total_seconds() <= 0:
+        return "⏰ انتهى الوقت - جاهز للحذف"
+    
+    days = remaining.days
+    hours = remaining.seconds // 3600
+    minutes = (remaining.seconds % 3600) // 60
+    seconds = remaining.seconds % 60
+    
+    if days > 0:
+        return f"⏳ {days} يوم {hours} ساعة {minutes} دقيقة"
+    elif hours > 0:
+        return f"⏳ {hours} ساعة {minutes} دقيقة {seconds} ثانية"
+    elif minutes > 0:
+        return f"⏳ {minutes} دقيقة {seconds} ثانية"
+    else:
+        return f"⏳ {seconds} ثانية"
+
+def format_duration(duration, unit):
+    """تنسيق عرض المدة"""
+    unit_text = get_unit_text(unit)
+    
+    if unit == 'seconds':
+        if duration < 60:
+            return f"{duration} ثانية"
+        elif duration < 3600:
+            return f"{duration//60} دقيقة {duration%60} ثانية"
+        else:
+            hours = duration // 3600
+            minutes = (duration % 3600) // 60
+            return f"{hours} ساعة {minutes} دقيقة"
+    
+    elif unit == 'minutes':
+        if duration < 60:
+            return f"{duration} دقيقة"
+        else:
+            hours = duration // 60
+            minutes = duration % 60
+            return f"{hours} ساعة {minutes} دقيقة"
+    
+    elif unit == 'hours':
+        if duration < 24:
+            return f"{duration} ساعة"
+        else:
+            days = duration // 24
+            hours = duration % 24
+            return f"{days} يوم {hours} ساعة"
+    
+    else:
+        return f"{duration} {unit_text}"
 
 def get_unit_text(unit):
     units = {
@@ -171,517 +230,306 @@ def get_unit_emoji(unit):
     }
     return emojis.get(unit, '⏰')
 
-def format_duration(duration, unit):
-    unit_text = get_unit_text(unit)
-    unit_emoji = get_unit_emoji(unit)
-    
-    if unit == 'seconds':
-        if duration < 60:
-            return f"{duration} {unit_text}"
-        elif duration < 3600:
-            return f"{duration//60} دقيقة {duration%60} ثانية"
-        else:
-            hours = duration // 3600
-            minutes = (duration % 3600) // 60
-            return f"{hours} ساعة {minutes} دقيقة"
-    
-    elif unit == 'minutes':
-        if duration < 60:
-            return f"{duration} {unit_text}"
-        else:
-            hours = duration // 60
-            minutes = duration % 60
-            return f"{hours} ساعة {minutes} دقيقة"
-    
-    elif unit == 'hours':
-        if duration < 24:
-            return f"{duration} {unit_text}"
-        else:
-            days = duration // 24
-            hours = duration % 24
-            return f"{days} يوم {hours} ساعة"
-    
-    else:
-        return f"{duration} {unit_text}"
-
-def save_message(message_id, chat_id, content, file_type=None):
+# ==========================================
+# إدارة الرسائل - النظام المتقدم
+# ==========================================
+def save_message(message_id, chat_id, user_id, content, file_type, message_date):
+    """حفظ الرسالة مع حساب وقت الحذف بدقة"""
     if get_setting('auto_delete_enabled') == 'false':
         return
     
-    delete_duration = calculate_delete_time()
-    delete_at = datetime.now() + delete_duration
+    # حساب وقت الحذف بناءً على وقت الرسالة الأصلي
+    delete_at = calculate_delete_time(message_date)
     
     conn = sqlite3.connect('invoices.db', check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO invoices (message_id, chat_id, content, file_type, delete_at) VALUES (?, ?, ?, ?, ?)",
-        (message_id, chat_id, content, file_type, delete_at)
+        """INSERT INTO messages 
+        (message_id, chat_id, user_id, content, file_type, message_date, delete_at) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (message_id, chat_id, user_id, content, file_type, message_date, delete_at)
     )
     conn.commit()
     conn.close()
+    
+    logger.info(f"💾 تم حفظ الرسالة {message_id} - الحذف: {delete_at}")
 
 async def delete_single_message(chat_id, message_id):
+    """حذف رسالة واحدة مع التعامل مع الأخطاء"""
     try:
         application = Application.builder().token(BOT_TOKEN).build()
         await application.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        
+        # تسجيل عملية الحذف
+        conn = sqlite3.connect('invoices.db', check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO deletion_log (message_id, chat_id, reason) VALUES (?, ?, ?)",
+            (message_id, chat_id, "auto_delete_time_reached")
+        )
+        conn.commit()
+        conn.close()
+        
         return True
     except Exception as e:
-        logger.error(f"❌ فشل في حذف الرسالة {message_id}: {e}")
+        error_msg = str(e)
+        logger.error(f"❌ فشل في حذف الرسالة {message_id}: {error_msg}")
+        
+        # تحديث حالة الرسالة مع سبب الفشل
+        conn = sqlite3.connect('invoices.db', check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE messages SET is_deleted = TRUE, delete_reason = ? WHERE message_id = ? AND chat_id = ?",
+            (f"delete_failed: {error_msg}", message_id, chat_id)
+        )
+        conn.commit()
+        conn.close()
+        
         return False
 
-def delete_old_messages():
+def check_and_delete_messages():
+    """فحص وحذف الرسائل التي انتهى وقتها"""
     if get_setting('auto_delete_enabled') == 'false':
         return
-        
+    
     conn = sqlite3.connect('invoices.db', check_same_thread=False)
     cursor = conn.cursor()
-    cursor.execute("SELECT message_id, chat_id FROM invoices WHERE delete_at <= datetime('now') AND is_deleted = FALSE")
-    old_messages = cursor.fetchall()
     
+    # الحصول على الرسائل التي انتهى وقتها ولم تحذف بعد
+    cursor.execute("""
+        SELECT message_id, chat_id, message_date, delete_at 
+        FROM messages 
+        WHERE delete_at <= datetime('now') 
+        AND is_deleted = FALSE
+    """)
+    
+    messages_to_delete = cursor.fetchall()
     deleted_count = 0
-    for message_id, chat_id in old_messages:
+    failed_count = 0
+    
+    logger.info(f"🔍 فحص {len(messages_to_delete)} رسالة للحذف...")
+    
+    for message_id, chat_id, message_date, delete_at in messages_to_delete:
         try:
+            # حذف الرسالة
             asyncio.run(delete_single_message(chat_id, message_id))
-            cursor.execute("UPDATE invoices SET is_deleted = TRUE WHERE message_id = ? AND chat_id = ?", (message_id, chat_id))
+            
+            # تحديث حالة الرسالة
+            cursor.execute(
+                "UPDATE messages SET is_deleted = TRUE, delete_reason = 'auto_deleted' WHERE message_id = ? AND chat_id = ?",
+                (message_id, chat_id)
+            )
             deleted_count += 1
+            
+            logger.info(f"✅ تم حذف الرسالة {message_id} التي أرسلت في {message_date}")
+            
         except Exception as e:
-            logger.error(f"❌ خطأ في حذف الرسالة {message_id}: {e}")
+            logger.error(f"❌ خطأ في معالجة الرسالة {message_id}: {e}")
+            failed_count += 1
     
     conn.commit()
     conn.close()
     
-    if deleted_count > 0:
-        logger.info(f"✅ تم حذف {deleted_count} رسالة")
+    if deleted_count > 0 or failed_count > 0:
+        logger.info(f"📊 نتائج الحذف: ✅ {deleted_count} نجح, ❌ {failed_count} فشل")
+
+def get_message_status(message_id, chat_id):
+    """الحصول على حالة رسالة محددة"""
+    conn = sqlite3.connect('invoices.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT message_date, delete_at, is_deleted, delete_reason 
+        FROM messages 
+        WHERE message_id = ? AND chat_id = ?
+    """, (message_id, chat_id))
+    
+    result = cursor.fetchone()
+    conn.close()
+    
+    if result:
+        message_date, delete_at, is_deleted, delete_reason = result
+        time_remaining = get_time_remaining(delete_at) if not is_deleted else "✅ تم الحذف"
+        
+        return {
+            'message_date': message_date,
+            'delete_at': delete_at,
+            'is_deleted': is_deleted,
+            'delete_reason': delete_reason,
+            'time_remaining': time_remaining,
+            'exists': True
+        }
+    else:
+        return {'exists': False}
+
+# ==========================================
+# نظام الجدولة المحسن
+# ==========================================
+def schedule_jobs():
+    """جدولة المهام الدورية"""
+    # فحص الرسائل كل 30 ثانية للتأكد من الحذف الفوري
+    schedule.every(30).seconds.do(check_and_delete_messages)
+    
+    # تنظيف قاعدة البيانات كل ساعة
+    schedule.every(1).hours.do(cleanup_database)
+    
+    # تسجيل حالة النظام كل 5 دقائق
+    schedule.every(5).minutes.do(log_system_status)
+    
+    while True:
+        try:
+            schedule.run_pending()
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"❌ خطأ في الجدولة: {e}")
+            time.sleep(10)
+
+def cleanup_database():
+    """تنظيف قاعدة البيانات من الرسائل المحذوفة قديماً"""
+    conn = sqlite3.connect('invoices.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    # حذف الرسائل المحذوفة منذ أكثر من 7 أيام
+    cursor.execute("DELETE FROM messages WHERE is_deleted = TRUE AND created_at <= datetime('now', '-7 days')")
+    deleted_rows = cursor.rowcount
+    
+    conn.commit()
+    conn.close()
+    
+    if deleted_rows > 0:
+        logger.info(f"🧹 تم تنظيف {deleted_rows} رسالة قديمة")
+
+def log_system_status():
+    """تسجيل حالة النظام"""
+    conn = sqlite3.connect('invoices.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT COUNT(*) FROM messages WHERE is_deleted = FALSE")
+    active_messages = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM messages WHERE delete_at <= datetime('now') AND is_deleted = FALSE")
+    pending_deletion = cursor.fetchone()[0]
+    
+    conn.close()
+    
+    logger.info(f"📊 حالة النظام: {active_messages} رسالة نشطة, {pending_deletion} جاهزة للحذف")
 
 # ==========================================
 # أوامر البوت الرئيسية
 # ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    update_user_stats(user.id)
-    
     duration = int(get_setting('delete_duration'))
     unit = get_setting('delete_unit')
     formatted_duration = format_duration(duration, unit)
     unit_emoji = get_unit_emoji(unit)
     
     keyboard = [
-        [InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="main_settings")],
-        [InlineKeyboardButton("📊 لوحة التحكم", callback_data="dashboard")],
-        [InlineKeyboardButton("⏰ تعديل مدة الحذف", callback_data="change_duration")],
-        [InlineKeyboardButton("ℹ️ المساعدة", callback_data="help_main")]
+        [InlineKeyboardButton("⚙️ الإعدادات", callback_data="main_settings")],
+        [InlineKeyboardButton("📊 حالة الرسائل", callback_data="messages_status")],
+        [InlineKeyboardButton("⏰ تعديل المدة", callback_data="change_duration")],
+        [InlineKeyboardButton("🔍 فحص رسالة", callback_data="check_message")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     welcome_text = f'''
 🎉 **مرحباً {user.mention_markdown()}!**
 
-🤖 **أنا بوت إدارة الفواتير الذكي المتقدم**
+🤖 **أنا بوت إدارة الفواتير الذكي**
 
-{unit_emoji} **الإعدادات الحالية:**
-• ⏰ مدة الحذف: {formatted_duration}
-• 🔄 الحذف التلقائي: {"✅ مفعل" if get_setting('auto_delete_enabled') == 'true' else "❌ معطل"}
-• 🔔 الإشعارات: {"✅ مفعلة" if get_setting('notifications_enabled') == 'true' else "❌ معطلة"}
+{unit_emoji} **نظام الحذف التلقائي:**
+• المدة: **{formatted_duration}**
+• الحالة: **{"✅ نشط" if get_setting('auto_delete_enabled') == 'true' else "❌ معطل"}**
 
-📨 **كيفية الاستخدام:**
-ما عليك سوى إرسال أي فاتورة أو تعديل وسأقوم بحفظها وحذفها تلقائياً بعد المدة المحددة.
+💡 **كيف يعمل:**
+1. أرسل أي رسالة
+2. أحفظها مع وقت الإرسال
+3. أحسب وقت الحذف بدقة
+4. أحذفها تلقائياً عند انتهاء المدة
 
-🎯 **الميزات الجديدة:**
-• ⏱️ تحديد المدة بالثواني، الدقائق، الساعات، الأيام
-• 🎛️ واجهة تفاعلية متقدمة
-• 📈 إحصائيات مفصلة
-• ⚡ إعدادات سريعة
+🔍 **لرؤية حالة أي رسالة:** اضغط على "فحص رسالة"
 '''
     await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = '''
-📋 **أوامر البوت المتقدمة:**
-
-/start - بدء استخدام البوت
-/settings - الإعدادات المتقدمة
-/status - إحصائيات النظام
-/setduration - تعيين مدة مخصصة
-/help - عرض المساعدة
-
-🎛️ **الميزات المتاحة:**
-• ⏱️ تحديد مدة الحذف بالثواني، الدقائق، الساعات، الأيام
-• 🔄 تفعيل/تعطيل الحذف التلقائي
-• 🔔 التحكم في الإشعارات
-• 📊 إحصائيات مفصلة في الوقت الحقيقي
-• 🎯 واجهة تفاعلية متقدمة
-• ⚡ إعدادات سريعة
-
-🔧 **للمشرفين:**
-• التحكم الكامل في إعدادات الحذف
-• مراقبة أداء النظام
-• إدارة كافة الرسائل
-• إحصائيات المستخدمين
-'''
-    await update.message.reply_text(help_text, parse_mode='Markdown')
-
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = sqlite3.connect('invoices.db', check_same_thread=False)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT COUNT(*) FROM invoices")
-    total_messages = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM invoices WHERE delete_at <= datetime('now') AND is_deleted = FALSE")
-    pending_deletion = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM invoices WHERE file_type IS NOT NULL")
-    files_count = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM user_stats")
-    active_users = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM invoices WHERE created_at >= datetime('now', '-1 day')")
-    last_24h = cursor.fetchone()[0]
-    
-    duration = int(get_setting('delete_duration'))
-    unit = get_setting('delete_unit')
-    formatted_duration = format_duration(duration, unit)
-    auto_delete = get_setting('auto_delete_enabled')
-    notifications = get_setting('notifications_enabled')
-    
-    status_text = f'''
-📊 **لوحة التحكم - إحصائيات النظام**
-
-• 📨 إجمالي الرسائل: **{total_messages}**
-• ⏳ المعلقة للحذف: **{pending_deletion}**
-• 📎 الملفات المرفوعة: **{files_count}**
-• 👥 المستخدمين النشطين: **{active_users}**
-• 🆕 آخر 24 ساعة: **{last_24h}**
-
-⚙️ **الإعدادات الحالية:**
-• ⏰ مدة الحذف: **{formatted_duration}**
-• 🔄 الحذف التلقائي: **{"✅ مفعل" if auto_delete == 'true' else "❌ معطل"}**
-• 🔔 الإشعارات: **{"✅ مفعلة" if notifications == 'true' else "❌ معطلة"}**
-
-🕒 آخر تحديث: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-'''
-    await update.message.reply_text(status_text, parse_mode='Markdown')
-
-# ==========================================
-# معالجة الأزرار والواجهة التفاعلية
-# ==========================================
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    
-    if data == "main_settings":
-        await show_main_settings(query)
-    elif data == "dashboard":
-        await show_dashboard(query)
-    elif data == "change_duration":
-        await change_duration_menu(query)
-    elif data == "help_main":
-        await show_help(query)
-    elif data == "quick_settings":
-        await show_quick_settings(query)
-    elif data.startswith("unit_"):
-        await set_time_unit(query, data)
-    elif data.startswith("duration_"):
-        await set_quick_duration(query, data)
-    elif data.startswith("toggle_"):
-        await toggle_setting(query, data)
-    elif data == "custom_duration":
-        await start_custom_duration(query, context)
-    elif data == "back_to_main":
-        await main_menu(query)
-
-async def show_main_settings(query):
-    if str(query.from_user.id) != ADMIN_ID:
-        await query.edit_message_text("❌ هذا القسم للمشرف فقط!")
-        return
-    
-    duration = int(get_setting('delete_duration'))
-    unit = get_setting('delete_unit')
-    formatted_duration = format_duration(duration, unit)
-    unit_emoji = get_unit_emoji(unit)
-    auto_delete = get_setting('auto_delete_enabled')
-    notifications = get_setting('notifications_enabled')
-    
-    keyboard = [
-        [InlineKeyboardButton(f"{unit_emoji} تغيير مدة الحذف", callback_data="change_duration")],
-        [InlineKeyboardButton("🕒 تغيير الوحدة الزمنية", callback_data="quick_settings")],
-        [InlineKeyboardButton(f"🔧 الحذف التلقائي: {'✅' if auto_delete == 'true' else '❌'}", callback_data="toggle_auto_delete")],
-        [InlineKeyboardButton(f"🔔 الإشعارات: {'✅' if notifications == 'true' else '❌'}", callback_data="toggle_notifications")],
-        [InlineKeyboardButton("📊 لوحة التحكم", callback_data="dashboard")],
-        [InlineKeyboardButton("🏠 الرئيسية", callback_data="back_to_main")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f'⚙️ **الإعدادات المتقدمة**\n\n'
-        f'• {unit_emoji} المدة الحالية: {formatted_duration}\n'
-        f'• 🔄 الحذف التلقائي: {"✅ مفعل" if auto_delete == 'true' else "❌ معطل"}\n'
-        f'• 🔔 الإشعارات: {"✅ مفعلة" if notifications == 'true' else "❌ معطلة"}\n\n'
-        'اختر الإعداد الذي تريد تعديله:',
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
-
-async def show_dashboard(query):
-    conn = sqlite3.connect('invoices.db', check_same_thread=False)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT COUNT(*) FROM invoices")
-    total = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM invoices WHERE delete_at <= datetime('now') AND is_deleted = FALSE")
-    pending = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM user_stats")
-    users = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM invoices WHERE created_at >= datetime('now', '-1 day')")
-    today = cursor.fetchone()[0]
-    
-    duration = int(get_setting('delete_duration'))
-    unit = get_setting('delete_unit')
-    formatted_duration = format_duration(duration, unit)
-    
-    keyboard = [
-        [InlineKeyboardButton("🔄 تحديث", callback_data="dashboard")],
-        [InlineKeyboardButton("⚙️ الإعدادات", callback_data="main_settings")],
-        [InlineKeyboardButton("🏠 الرئيسية", callback_data="back_to_main")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    dashboard_text = f'''
-📈 **لوحة التحكم - نظرة عامة**
-
-📊 **الإحصائيات:**
-• 📨 الرسائل الكلية: **{total}**
-• ⏳ للحذف: **{pending}**
-• 👥 المستخدمين: **{users}**
-• 📈 اليوم: **{today}**
-
-⚙️ **الإعدادات:**
-• ⏰ مدة الحذف: **{formatted_duration}**
-• 🔄 الحذف التلقائي: **{"✅" if get_setting('auto_delete_enabled') == 'true' else "❌"}**
-• 🔔 الإشعارات: **{"✅" if get_setting('notifications_enabled') == 'true' else "❌"}**
-
-🕒 {datetime.now().strftime("%H:%M:%S")}
-'''
-    await query.edit_message_text(dashboard_text, reply_markup=reply_markup, parse_mode='Markdown')
-
-async def change_duration_menu(query):
-    duration = int(get_setting('delete_duration'))
-    unit = get_setting('delete_unit')
-    current_setting = format_duration(duration, unit)
-    
-    keyboard = [
-        [InlineKeyboardButton("⏱️ الثواني (30 ثانية)", callback_data="duration_30_seconds")],
-        [InlineKeyboardButton("⏱️ الثواني (5 دقائق)", callback_data="duration_300_seconds")],
-        [InlineKeyboardButton("⏰ الدقائق (10 دقائق)", callback_data="duration_10_minutes")],
-        [InlineKeyboardButton("⏰ الدقائق (30 دقائق)", callback_data="duration_30_minutes")],
-        [InlineKeyboardButton("🕐 الساعات (1 ساعة)", callback_data="duration_1_hours")],
-        [InlineKeyboardButton("🕐 الساعات (6 ساعات)", callback_data="duration_6_hours")],
-        [InlineKeyboardButton("📅 الأيام (1 يوم)", callback_data="duration_1_days")],
-        [InlineKeyboardButton("📅 الأيام (3 أيام)", callback_data="duration_3_days")],
-        [InlineKeyboardButton("🔢 مدة مخصصة", callback_data="custom_duration")],
-        [InlineKeyboardButton("🔙 رجوع", callback_data="main_settings")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f'⏰ **تغيير مدة الحذف**\n\n'
-        f'المدة الحالية: **{current_setting}**\n\n'
-        'اختر من المدد الجاهزة أو اختر "مدة مخصصة" لإدخال قيمة محددة:\n\n'
-        '💡 **المدد المقترحة:**\n'
-        '• ⏱️ الثواني: للتجارب السريعة\n'
-        '• ⏰ الدقائق: للاختبارات\n'
-        '• 🕐 الساعات: للاستخدام اليومي\n'
-        '• 📅 الأيام: للتخزين المؤقت',
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
-
-async def show_quick_settings(query):
-    current_unit = get_setting('delete_unit')
-    keyboard = [
-        [InlineKeyboardButton(f"⏱️ الثواني {'✅' if current_unit == 'seconds' else ''}", callback_data="unit_seconds")],
-        [InlineKeyboardButton(f"⏰ الدقائق {'✅' if current_unit == 'minutes' else ''}", callback_data="unit_minutes")],
-        [InlineKeyboardButton(f"🕐 الساعات {'✅' if current_unit == 'hours' else ''}", callback_data="unit_hours")],
-        [InlineKeyboardButton(f"📅 الأيام {'✅' if current_unit == 'days' else ''}", callback_data="unit_days")],
-        [InlineKeyboardButton("🔙 رجوع", callback_data="main_settings")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        '🕒 **تغيير وحدة الوقت**\n\n'
-        'اختر الوحدة الزمنية المناسبة:\n\n'
-        '• ⏱️ **الثواني**: للحذف السريع الفوري\n'
-        '• ⏰ **الدقائق**: للاختبارات والتجارب\n'
-        '• 🕐 **الساعات**: للاستخدام اليومي العادي\n'
-        '• 📅 **الأيام**: للتخزين المؤقت الطويل',
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
-
-async def set_time_unit(query, data):
-    unit = data.replace("unit_", "")
-    set_setting('delete_unit', unit)
-    unit_text = get_unit_text(unit)
-    unit_emoji = get_unit_emoji(unit)
-    
-    await query.edit_message_text(
-        f'✅ {unit_emoji} تم تغيير وحدة الوقت إلى: **{unit_text}**\n\n'
-        f'يمكنك الآن تعديل مدة الحذف باستخدام الوحدة الجديدة.',
-        parse_mode='Markdown'
-    )
-
-async def set_quick_duration(query, data):
-    parts = data.replace("duration_", "").split("_")
-    duration = parts[0]
-    unit = parts[1]
-    
-    set_setting('delete_duration', duration)
-    set_setting('delete_unit', unit)
-    
-    formatted_duration = format_duration(int(duration), unit)
-    unit_emoji = get_unit_emoji(unit)
-    
-    await query.edit_message_text(
-        f'✅ {unit_emoji} تم تعيين مدة الحذف إلى: **{formatted_duration}**\n\n'
-        f'جميع الرسائل الجديدة سيتم حذفها تلقائياً بعد هذه المدة.',
-        parse_mode='Markdown'
-    )
-
-async def toggle_setting(query, data):
-    setting = data.replace("toggle_", "")
-    current = get_setting(setting)
-    new_value = 'false' if current == 'true' else 'true'
-    set_setting(setting, new_value)
-    
-    setting_names = {
-        'auto_delete_enabled': ('الحذف التلقائي', '🔧'),
-        'notifications_enabled': ('الإشعارات', '🔔')
-    }
-    
-    name, emoji = setting_names.get(setting, ('الإعداد', '⚙️'))
-    status_text = "تفعيل" if new_value == 'true' else "تعطيل"
-    status_emoji = "✅" if new_value == 'true' else "❌"
-    
-    await query.edit_message_text(
-        f'{status_emoji} {emoji} تم **{status_text}** {name}',
-        parse_mode='Markdown'
-    )
-
-async def start_custom_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    await query.edit_message_text(
-        '🔢 **إدخال مدة مخصصة**\n\n'
-        'الرجاء إرسال الرقم الذي تريد تعيينه لمدة الحذف:\n\n'
-        '💡 **أمثلة:**\n'
-        '• `30` لـ 30 ثانية/دقيقة/ساعة (حسب الوحدة الحالية)\n'
-        '• `120` لـ دقيقتين/ساعتين\n'
-        '• `1440` لـ 24 ساعة (بالدقائق)\n\n'
-        'الوحدة الحالية: ' + get_unit_text(get_setting('delete_unit'))
-    )
-    
-    return CUSTOM_DURATION
-
-async def receive_custom_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        duration = int(update.message.text)
-        if duration <= 0:
-            await update.message.reply_text("❌ الرقم يجب أن يكون أكبر من الصفر!")
-            return CUSTOM_DURATION
-            
-        unit = get_setting('delete_unit')
-        set_setting('delete_duration', duration)
-        
-        formatted_duration = format_duration(duration, unit)
-        unit_emoji = get_unit_emoji(unit)
-        
+async def check_message_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """فحص حالة رسالة محددة"""
+    if not context.args:
         await update.message.reply_text(
-            f'✅ {unit_emoji} تم تعيين مدة الحذف إلى: **{formatted_duration}**\n\n'
-            f'جميع الرسائل الجديدة سيتم حذفها تلقائياً بعد هذه المدة.',
+            "🔍 **لفحص حالة رسالة:**\n"
+            "قم بالرد على الرسالة المراد فحصها واكتب:\n"
+            "`/status`\n\n"
+            "أو أرسل معرف الرسالة:\n"
+            "`/status 123`",
             parse_mode='Markdown'
         )
+        return
+    
+    try:
+        message_id = int(context.args[0])
+        chat_id = update.effective_chat.id
         
-        return ConversationHandler.END
+        status = get_message_status(message_id, chat_id)
+        
+        if status['exists']:
+            if status['is_deleted']:
+                status_text = f'''
+❌ **الرسالة {message_id}**
+• 📅 وقت الإرسال: `{status['message_date']}`
+• 🗑️ تم الحذف في: `{status['delete_at']}`
+• 📋 السبب: `{status['delete_reason']}`
+'''
+            else:
+                status_text = f'''
+📨 **الرسالة {message_id}**
+• 📅 وقت الإرسال: `{status['message_date']}`
+• ⏰ سيحذف في: `{status['delete_at']}`
+• ⏳ الوقت المتبقي: **{status['time_remaining']}**
+'''
+        else:
+            status_text = f"❌ لم أجد الرسالة {message_id} في قاعدة البيانات"
+        
+        await update.message.reply_text(status_text, parse_mode='Markdown')
         
     except ValueError:
-        await update.message.reply_text("❌ الرجاء إدخال رقم صحيح!")
-        return CUSTOM_DURATION
+        await update.message.reply_text("❌ الرجاء إدخال معرف رسالة صحيح (رقم)")
 
-async def cancel_custom_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ تم إلغاء تعيين المدة المخصصة.")
-    return ConversationHandler.END
-
-async def show_help(query):
-    help_text = '''
-🎯 **كيفية الاستخدام المتقدم:**
-
-1. **أرسل أي فاتورة أو تعديل** 📨
-2. **سأقوم بحفظها تلقائياً** 💾
-3. **سيتم حذفها بعد المدة المحددة** ⏰
-
-⚙️ **الإعدادات المتاحة:**
-• ⏱️ تغيير مدة الحذف (ثواني، دقائق، ساعات، أيام)
-• 🔄 تفعيل/تعطيل الحذف التلقائي
-• 🔔 التحكم في الإشعارات
-• 📊 متابعة الإحصائيات الحيوية
-
-🎛️ **الواجهة التفاعلية:**
-• استخدم الأزرار للتنقل السريع
-• عدل الإعدادات بنقرة واحدة
-• تابع الإحصائيات في الوقت الحقيقي
+async def handle_reply_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة الرد على رسالة لفحص حالتها"""
+    if update.message.reply_to_message:
+        message_id = update.message.reply_to_message.message_id
+        chat_id = update.effective_chat.id
+        
+        status = get_message_status(message_id, chat_id)
+        
+        if status['exists']:
+            if status['is_deleted']:
+                status_text = f'''
+❌ **الرسالة التي تم الرد عليها**
+• 📅 وقت الإرسال: `{status['message_date']}`
+• 🗑️ تم الحذف في: `{status['delete_at']}`
+• 📋 السبب: `{status['delete_reason']}`
 '''
-    keyboard = [
-        [InlineKeyboardButton("⚙️ الإعدادات", callback_data="main_settings")],
-        [InlineKeyboardButton("📊 لوحة التحكم", callback_data="dashboard")],
-        [InlineKeyboardButton("🏠 الرئيسية", callback_data="back_to_main")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode='Markdown')
-
-async def main_menu(query):
-    user = query.from_user
-    duration = int(get_setting('delete_duration'))
-    unit = get_setting('delete_unit')
-    formatted_duration = format_duration(duration, unit)
-    unit_emoji = get_unit_emoji(unit)
-    
-    keyboard = [
-        [InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="main_settings")],
-        [InlineKeyboardButton("📊 لوحة التحكم", callback_data="dashboard")],
-        [InlineKeyboardButton("⏰ تعديل مدة الحذف", callback_data="change_duration")],
-        [InlineKeyboardButton("ℹ️ المساعدة", callback_data="help_main")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    welcome_text = f'''
-🎉 **مرحباً {user.mention_markdown()}!**
-
-🤖 **أنا بوت إدارة الفواتير الذكي المتقدم**
-
-{unit_emoji} **الإعدادات الحالية:**
-• ⏰ مدة الحذف: {formatted_duration}
-• 🔄 الحذف التلقائي: {"✅ مفعل" if get_setting('auto_delete_enabled') == 'true' else "❌ معطل"}
-
-📨 **كيفية الاستخدام:**
-ما عليك سوى إرسال أي فاتورة أو تعديل وسأقوم بحفظها وحذفها تلقائياً بعد المدة المحددة.
+            else:
+                status_text = f'''
+📨 **الرسالة التي تم الرد عليها**
+• 📅 وقت الإرسال: `{status['message_date']}`
+• ⏰ سيحذف في: `{status['delete_at']}`
+• ⏳ الوقت المتبقي: **{status['time_remaining']}**
 '''
-    await query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+            await update.message.reply_text(status_text, parse_mode='Markdown')
+        else:
+            await update.message.reply_text("❌ هذه الرسالة غير مسجلة في النظام")
 
 # ==========================================
-# معالجة الرسائل
+# معالجة الرسائل - النظام المتقدم
 # ==========================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة جميع الرسائل الواردة"""
     message = update.message
     user = message.from_user
-    update_user_stats(user.id)
+    
+    # استخراج وقت الرسالة الأصلي
+    message_date = message.date.replace(tzinfo=None) if message.date.tzinfo else message.date
     
     # تحديد نوع المحتوى
     content = ""
@@ -703,22 +551,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif message.audio:
         file_type = "audio"
     
-    # حفظ الرسالة
-    save_message(message.message_id, message.chat_id, content, file_type)
+    # حفظ الرسالة مع الوقت الدقيق
+    save_message(
+        message_id=message.message_id,
+        chat_id=message.chat_id,
+        user_id=user.id,
+        content=content,
+        file_type=file_type,
+        message_date=message_date
+    )
     
-    # إرسال تأكيد
+    # إرسال تأكيد مع تفاصيل الوقت
     if message.chat.type == 'private':
         duration = int(get_setting('delete_duration'))
         unit = get_setting('delete_unit')
         formatted_duration = format_duration(duration, unit)
         unit_emoji = get_unit_emoji(unit)
         
+        # حساب وقت الحذف الدقيق
+        delete_at = calculate_delete_time(message_date)
+        time_remaining = get_time_remaining(delete_at)
+        
         confirmation_text = f'''
-✅ تم استلام {get_file_type_text(file_type)} بنجاح!
+✅ **تم استلام الرسالة بنجاح!**
 
-{unit_emoji} **سيتم حذفها تلقائياً بعد:** {formatted_duration}
+📨 **التفاصيل:**
+• 🆔 معرف الرسالة: `{message.message_id}`
+• 📅 وقت الإرسال: `{message_date.strftime("%Y-%m-%d %H:%M:%S")}`
+• {unit_emoji} مدة الحذف: **{formatted_duration}**
+• ⏰ وقت الحذف: `{delete_at.strftime("%Y-%m-%d %H:%M:%S")}`
+• ⏳ الحالة: **{time_remaining}**
 
-💾 **تم الحفظ في قاعدة البيانات**
+💾 **تم الحفظ في النظام وسيتم الحذف التلقائي عند انتهاء المدة.**
 '''
         await message.reply_text(
             confirmation_text,
@@ -726,81 +590,150 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
 
-def get_file_type_text(file_type):
-    types = {
-        'text': 'الرسالة النصية',
-        'caption': 'النص المصاحب',
-        'document': 'الملف',
-        'photo': 'الصورة',
-        'video': 'الفيديو',
-        'audio': 'الصوت'
-    }
-    return types.get(file_type, 'الرسالة')
-
 # ==========================================
-# الأوامر الإضافية
+# الواجهة التفاعلية
 # ==========================================
-async def set_duration_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
-        await update.message.reply_text("❌ هذا الأمر للمشرف فقط!")
-        return
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     
-    if not context.args:
-        await update.message.reply_text(
-            "📝 **الاستخدام:** `/setduration <رقم>`\n\n"
-            "**أمثلة:**\n"
-            "• `/setduration 30` لـ 30 ثانية/دقيقة\n"
-            "• `/setduration 120` لـ دقيقتين/ساعتين\n"
-            "• `/setduration 1440` لـ 24 ساعة\n\n"
-            "💡 **الوحدة الحالية:** " + get_unit_text(get_setting('delete_unit')),
+    data = query.data
+    
+    if data == "main_settings":
+        await show_main_settings(query)
+    elif data == "messages_status":
+        await show_messages_status(query)
+    elif data == "change_duration":
+        await change_duration_menu(query)
+    elif data == "check_message":
+        await query.edit_message_text(
+            "🔍 **لفحص حالة رسالة:**\n"
+            "قم بالرد على الرسالة واكتب:\n"
+            "`/status`\n\n"
+            "أو أرسل:\n"
+            "`/status [معرف_الرسالة]`",
             parse_mode='Markdown'
         )
-        return
-    
-    try:
-        duration = int(context.args[0])
-        if duration <= 0:
-            await update.message.reply_text("❌ يجب أن يكون الرقم أكبر من الصفر!")
-            return
-            
-        unit = get_setting('delete_unit')
-        set_setting('delete_duration', duration)
-        formatted_duration = format_duration(duration, unit)
-        unit_emoji = get_unit_emoji(unit)
-        
-        await update.message.reply_text(
-            f'✅ {unit_emoji} تم تعيين مدة الحذف إلى: **{formatted_duration}**',
-            parse_mode='Markdown'
-        )
-        
-    except ValueError:
-        await update.message.reply_text("❌ الرجاء إدخال رقم صحيح!")
 
-# ==========================================
-# الجدولة والمهام الخلفية
-# ==========================================
-def schedule_jobs():
-    schedule.every(1).minutes.do(delete_old_messages)
+async def show_main_settings(query):
+    duration = int(get_setting('delete_duration'))
+    unit = get_setting('delete_unit')
+    formatted_duration = format_duration(duration, unit)
+    unit_emoji = get_unit_emoji(unit)
     
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    keyboard = [
+        [InlineKeyboardButton(f"{unit_emoji} تغيير المدة", callback_data="change_duration")],
+        [InlineKeyboardButton("📊 حالة النظام", callback_data="messages_status")],
+        [InlineKeyboardButton("🔄 تشغيل/إيقاف الحذف", callback_data="toggle_auto_delete")],
+        [InlineKeyboardButton("🏠 الرئيسية", callback_data="back_main")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f'⚙️ **إعدادات النظام**\n\n'
+        f'• {unit_emoji} المدة الحالية: **{formatted_duration}**\n'
+        f'• 🔄 الحذف التلقائي: **{"✅ نشط" if get_setting('auto_delete_enabled') == 'true' else "❌ معطل"}**\n\n'
+        'اختر الإعداد الذي تريد تعديله:',
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
-def run_scheduler():
-    scheduler_thread = threading.Thread(target=schedule_jobs, daemon=True)
-    scheduler_thread.start()
-    logger.info("⏰ نظام الجدولة يعمل...")
+async def show_messages_status(query):
+    conn = sqlite3.connect('invoices.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT COUNT(*) FROM messages WHERE is_deleted = FALSE")
+    active_messages = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM messages WHERE delete_at <= datetime('now') AND is_deleted = FALSE")
+    pending_deletion = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM messages WHERE is_deleted = TRUE")
+    deleted_messages = cursor.fetchone()[0]
+    
+    # أحدث 5 رسائل
+    cursor.execute("""
+        SELECT message_id, message_date, delete_at 
+        FROM messages 
+        WHERE is_deleted = FALSE 
+        ORDER BY message_date DESC 
+        LIMIT 5
+    """)
+    recent_messages = cursor.fetchall()
+    
+    conn.close()
+    
+    status_text = f'''
+📊 **حالة الرسائل في النظام**
+
+• 📨 الرسائل النشطة: **{active_messages}**
+• ⏳ جاهزة للحذف: **{pending_deletion}**
+• 🗑️ تم حذفها: **{deleted_messages}**
+
+📋 **أحدث الرسائل:**
+'''
+    
+    for msg_id, msg_date, delete_at in recent_messages:
+        time_remaining = get_time_remaining(delete_at)
+        status_text += f"• 🆔 {msg_id} - ⏳ {time_remaining}\n"
+    
+    status_text += f"\n🕒 آخر تحديث: {datetime.now().strftime('%H:%M:%S')}"
+    
+    keyboard = [[InlineKeyboardButton("🔄 تحديث", callback_data="messages_status")],
+                [InlineKeyboardButton("🏠 الرئيسية", callback_data="back_main")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def change_duration_menu(query):
+    duration = int(get_setting('delete_duration'))
+    unit = get_setting('delete_unit')
+    current_setting = format_duration(duration, unit)
+    
+    keyboard = [
+        [InlineKeyboardButton("⏱️ 30 ثانية", callback_data="dur_30_seconds")],
+        [InlineKeyboardButton("⏱️ 5 دقائق", callback_data="dur_300_seconds")],
+        [InlineKeyboardButton("⏰ 30 دقيقة", callback_data="dur_30_minutes")],
+        [InlineKeyboardButton("🕐 1 ساعة", callback_data="dur_1_hours")],
+        [InlineKeyboardButton("🕐 6 ساعات", callback_data="dur_6_hours")],
+        [InlineKeyboardButton("📅 1 يوم", callback_data="dur_1_days")],
+        [InlineKeyboardButton("📅 7 أيام", callback_data="dur_7_days")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="main_settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f'⏰ **تغيير مدة الحذف**\n\n'
+        f'المدة الحالية: **{current_setting}**\n\n'
+        'اختر من المدد الجاهزة:',
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def toggle_auto_delete(query):
+    current = get_setting('auto_delete_enabled')
+    new_value = 'false' if current == 'true' else 'true'
+    set_setting('auto_delete_enabled', new_value)
+    
+    status = "تشغيل" if new_value == 'true' else "إيقاف"
+    emoji = "✅" if new_value == 'true' else "❌"
+    
+    await query.edit_message_text(f'{emoji} تم **{status}** الحذف التلقائي', parse_mode='Markdown')
+
+async def back_to_main(query):
+    await start(query, None)
 
 # ==========================================
 # التشغيل الرئيسي
 # ==========================================
 def main():
-    logger.info("🚀 بدء تشغيل البوت...")
+    logger.info("🚀 بدء تشغيل البوت المتقدم...")
     
     if not BOT_TOKEN:
         logger.error("❌ BOT_TOKEN غير موجود!")
         return
     
+    # تهيئة قاعدة البيانات
     init_db()
     
     # بدء خادم الويب
@@ -808,32 +741,22 @@ def main():
     web_thread.start()
     logger.info("🌐 خادم الويب يعمل...")
     
-    # بدء الجدولة
-    run_scheduler()
+    # بدء نظام الجدولة
+    scheduler_thread = threading.Thread(target=schedule_jobs, daemon=True)
+    scheduler_thread.start()
+    logger.info("⏰ نظام الجدولة يعمل...")
     
     # إنشاء تطبيق البوت
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # إعداد محادثة المدة المخصصة
-    conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(start_custom_duration, pattern='^custom_duration$')],
-        states={
-            CUSTOM_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_duration)]
-        },
-        fallbacks=[CommandHandler('cancel', cancel_custom_duration)]
-    )
-    
     # إضافة handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("status", status))
-    application.add_handler(CommandHandler("setduration", set_duration_command))
-    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler("status", check_message_status))
+    application.add_handler(CommandHandler("status", handle_reply_status))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     
-    logger.info("🤖 البوت جاهز للعمل!")
-    logger.info(f"🌐 رابط الخدمة: https://dfsg-zqpy.onrender.com")
+    logger.info("🤖 البوت المتقدم جاهز للعمل!")
     
     # بدء البوت
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
