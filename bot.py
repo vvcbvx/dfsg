@@ -17,21 +17,23 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return """
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return f"""
     <html>
         <head>
             <title>Telegram Invoice Bot</title>
             <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f0f2f5; }
-                .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-                .status { color: #22c55e; font-weight: bold; font-size: 18px; }
+                body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f0f2f5; }}
+                .container {{ max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+                .status {{ color: #22c55e; font-weight: bold; font-size: 18px; }}
             </style>
         </head>
         <body>
             <div class="container">
                 <h1>🤖 Telegram Invoice Bot</h1>
                 <p class="status">✅ البوت يعمل بنجاح!</p>
-                <p>⏰ آخر تحديث: {}</p>
+                <p>⏰ آخر تحديث: {current_time}</p>
+                <p>🌐 البوت نشط 24/7 على Render</p>
             </div>
         </body>
     </html>
