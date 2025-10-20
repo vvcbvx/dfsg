@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: telegram-invoice-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        value: "7955384959:AAEIU_kzt3hyEmsK9QHoinkSlrld_vWkDB8"
+      - key: ADMIN_ID
+        value: "6068899411"
