@@ -37,7 +37,7 @@ def home():
             </div>
         </body>
     </html>
-    """.format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    """
 
 @app.route('/health')
 def health():
@@ -99,22 +99,33 @@ def get_setting(key, default=None):
     conn.close()
     return result[0] if result else default
 
-def set_setting(key, value):
-    conn = sqlite3.connect('invoices.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (key, str(value))
-    )
-    conn.commit()
-    conn.close()
-
 # ==========================================
 # أوامر البوت الأساسية
 # ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    await update.message.reply_text(f'🎉 مرحباً {user.first_name}! البوت يعمل بنجاح على Render!')
+    duration = get_setting('delete_duration')
+    unit = get_setting('delete_unit')
+    
+    keyboard = [
+        [InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")],
+        [InlineKeyboardButton("📊 الإحصائيات", callback_data="stats")],
+        [InlineKeyboardButton("ℹ️ المساعدة", callback_data="help")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    welcome_text = f'''
+🎉 **مرحباً {user.first_name}!**
+
+🤖 أنا بوت إدارة الفواتير الذكي
+
+⏰ **الإعدادات الحالية:**
+• مدة الحذف: {duration} {unit}
+• الحذف التلقائي: {"مفعل" if get_setting('auto_delete_enabled') == 'true' else "معطل"}
+
+📨 أرسل أي فاتورة أو تعديل وسأقوم بحفظها وحذفها تلقائياً.
+'''
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = '''
@@ -123,16 +134,28 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /start - بدء استخدام البوت
 /help - عرض المساعدة
 
-🤖 **الميزات:**
+🎛️ **الميزات:**
 • حفظ الفواتير تلقائياً
 • حذف تلقائي بعد مدة محددة
 • واجهة تفاعلية
+• إحصائيات مفصلة
 '''
     await update.message.reply_text(help_text)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    await message.reply_text('✅ تم استلام رسالتك وسيتم حفظها!')
+    await message.reply_text('✅ تم استلام رسالتك وسيتم حفظها وحذفها تلقائياً بعد المدة المحددة!')
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "settings":
+        await query.edit_message_text("⚙️ إعدادات البوت:\n\n• مدة الحذف: 24 ساعة\n• الحذف التلقائي: مفعل")
+    elif query.data == "stats":
+        await query.edit_message_text("📊 الإحصائيات قريباً...")
+    elif query.data == "help":
+        await help_command(update, context)
 
 # ==========================================
 # التشغيل الرئيسي
@@ -140,12 +163,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     logger.info("🚀 بدء تشغيل البوت...")
     
-    # التحقق من التوكن
     if not BOT_TOKEN:
         logger.error("❌ BOT_TOKEN غير موجود!")
         return
     
-    # تهيئة قاعدة البيانات
     init_db()
     
     # بدء خادم الويب
@@ -159,11 +180,11 @@ def main():
     # إضافة handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     logger.info("🤖 البوت جاهز للعمل!")
     
-    # بدء البوت
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
