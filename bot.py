@@ -18,7 +18,7 @@ from threading import Thread
 import uuid
 
 # ========== إعدادات البوت ==========
-BOT_TOKEN = "7388387809:AAHgsBR0z-avEVjjN2boGyXXwO2TR_T7hXA"
+BOT_TOKEN = "7955384959:AAEIU_kzt3hyEmsK9QHoinkSlrld_vWkDB8"
 PORT = int(os.environ.get('PORT', 5000))
 
 # ========== إعداد Flask ==========
