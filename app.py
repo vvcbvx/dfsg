@@ -9,16 +9,19 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from flask import Flask, request, jsonify, render_template_string
-from telegram import Update, InputFile
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, Bot
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import asyncio
 from threading import Thread
 import uuid
+import logging
 
 # ========== إعدادات البوت ==========
 BOT_TOKEN = "7955384959:AAEIU_kzt3hyEmsK9QHoinkSlrld_vWkDB8"
 PORT = int(os.environ.get('PORT', 5000))
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL', '')
 
 # ========== إعداد Flask ==========
 app = Flask(__name__)
@@ -43,14 +46,29 @@ class InstagramGrowthBot:
     def setup_driver(self):
         """إعداد متصفح Chrome"""
         chrome_options = Options()
+        
+        # إعدادات للتشغيل على السحابة
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--headless")  # مهم للتشغيل على السحابة
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
-        self.driver = webdriver.Chrome(options=chrome_options)
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        # إعدادات إضافية للتشغيل على Render
+        chrome_options.binary_location = os.environ.get('GOOGLE_CHROME_BIN', '/usr/bin/google-chrome')
+        
+        try:
+            self.driver = webdriver.Chrome(
+                options=chrome_options
+            )
+            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            return True
+        except Exception as e:
+            print(f"Error setting up driver: {e}")
+            return False
         
     def human_like_delay(self, min_sec=2, max_sec=8):
         """تأخير بشري عشوائي"""
@@ -239,7 +257,10 @@ class OrderManager:
         def run_growth():
             try:
                 # إعداد البوت
-                self.bot.setup_driver()
+                if not self.bot.setup_driver():
+                    order_data['status'] = 'failed'
+                    order_data['error'] = 'Failed to setup browser'
+                    return
                 
                 # تسجيل الدخول
                 if self.bot.login(order_data['ig_username'], order_data['ig_password']):
@@ -432,10 +453,9 @@ LOGIN_HTML = """
             <div class="input-group">
                 <label>عدد المتابعين المطلوب:</label>
                 <select id="followerCount">
+                    <option value="50">50 متابع</option>
                     <option value="100">100 متابع</option>
-                    <option value="250">250 متابع</option>
-                    <option value="500">500 متابع</option>
-                    <option value="1000">1000 متابع</option>
+                    <option value="150">150 متابع</option>
                 </select>
             </div>
             
@@ -752,7 +772,7 @@ def start_service():
         data = request.get_json()
         ig_username = data.get('ig_username')
         ig_password = data.get('ig_password')
-        target_followers = data.get('target_followers', 100)
+        target_followers = data.get('target_followers', 50)
         user_id = data.get('user_id')
         
         if not all([ig_username, ig_password, user_id]):
@@ -776,9 +796,6 @@ def start_service():
         # بدء الخدمة
         order_manager.orders[order_id] = order_data
         order_manager.start_growth_service(order_data)
-        
-        # إرسال إشعار للبوت
-        asyncio.run(send_service_start_notification(user_id, order_id, ig_username))
         
         return jsonify({
             'success': True,
@@ -808,41 +825,18 @@ def service_status_page(user_id):
     """صفحة حالة الخدمة"""
     return render_template_string(STATUS_HTML, user_id=user_id)
 
-# ========== وظائف التليجرام ==========
-async def send_service_start_notification(user_id, order_id, username):
-    """إرسال إشعار بدء الخدمة للبوت"""
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Webhook لاستقبال تحديثات التليجرام"""
     try:
-        application = Application.builder().token(BOT_TOKEN).build()
-        
-        user_id_int = int(user_id)
-        
-        message = f"""
-🚀 **تم بدء خدمة زيادة المتابعين!**
-
-👤 **الحساب:** @{username}
-🆔 **رقم الطلب:** {order_id}
-🕒 **الوقت:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-📊 **جاري بدء عملية النمو...**
-• المتابعة من الهاشتاقات
-• المتابعة من الحسابات الكبيرة
-• محاكاة السلوك البشري
-
-⏰ **المدة المتوقعة:** 2-6 ساعات
-🎯 **سيتم إرسال التحديثات تلقائياً**
-        """
-        
-        await application.bot.send_message(
-            chat_id=user_id_int,
-            text=message,
-            parse_mode='HTML'
-        )
-        
-        print(f"✅ تم إرسال إشعار بدء الخدمة للمستخدم {user_id}")
-        
+        update = Update.de_json(request.get_json(), application.bot)
+        application.update_queue.put(update)
+        return 'ok'
     except Exception as e:
-        print(f"❌ خطأ في إرسال إشعار الخدمة: {e}")
+        print(f"Webhook error: {e}")
+        return 'error'
 
+# ========== نظام التليجرام البوت ==========
 class TelegramBot:
     def __init__(self, token):
         self.token = token
@@ -854,7 +848,7 @@ class TelegramBot:
         user_id = user.id
         
         # إنشاء رابط المستخدم
-        base_url = os.environ.get('RENDER_EXTERNAL_URL', f"https://{request.host}" if request else "http://localhost:5000")
+        base_url = os.environ.get('RENDER_EXTERNAL_URL', 'https://your-app-name.onrender.com')
         user_url = f"{base_url}/user/{user_id}"
         
         welcome_text = f"""
@@ -904,17 +898,24 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CommandHandler("help", self.help_command))
 
-    def run_polling(self):
-        """تشغيل البوت باستخدام Polling"""
+    async def setup_webhook(self):
+        """إعداد Webhook"""
+        webhook_url = f"{WEBHOOK_URL}/webhook"
+        await self.application.bot.set_webhook(webhook_url)
+        print(f"✅ Webhook set to: {webhook_url}")
+
+    def run_webhook(self):
+        """تشغيل البوت باستخدام Webhook"""
         async def run():
             self.application = Application.builder().token(self.token).build()
             self.setup_handlers()
             
-            print("🤖 بدء تشغيل بوت التليجرام...")
+            print("🤖 بدء تشغيل بوت التليجرام باستخدام Webhook...")
             await self.application.initialize()
             await self.application.start()
-            await self.application.updater.start_polling()
+            await self.setup_webhook()
             
+            # الحفاظ على التشغيل
             while True:
                 await asyncio.sleep(3600)
                 
@@ -924,23 +925,25 @@ class TelegramBot:
 def run_flask():
     """تشغيل خادم Flask"""
     print("🌐 بدء تشغيل خادم الويب...")
-    app.run(host='0.0.0.0', port=PORT, debug=False)
+    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
 
 def run_bot():
     """تشغيل بوت التليجرام"""
-    time.sleep(3)
+    time.sleep(5)  # انتظار تشغيل Flask أولاً
     bot = TelegramBot(BOT_TOKEN)
-    bot.run_polling()
+    bot.run_webhook()
 
 if __name__ == '__main__':
     print("🚀 بدء تشغيل خدمة زيادة متابعين إنستغرام...")
     print(f"📊 البورت: {PORT}")
     print(f"🔑 التوكن: {BOT_TOKEN}")
     
+    # تشغيل Flask في thread منفصل
     flask_thread = Thread(target=run_flask, daemon=True)
-    bot_thread = Thread(target=run_bot, daemon=True)
-    
     flask_thread.start()
+    
+    # تشغيل البوت في thread منفصل
+    bot_thread = Thread(target=run_bot, daemon=True)
     bot_thread.start()
     
     try:
