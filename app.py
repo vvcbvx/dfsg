@@ -4,18 +4,11 @@ import time
 import json
 import requests
 from datetime import datetime, timedelta
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from flask import Flask, request, jsonify, render_template_string
-from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 import asyncio
 from threading import Thread
-import uuid
 import logging
 
 # ========== إعدادات البوت ==========
@@ -30,10 +23,9 @@ app = Flask(__name__)
 if not os.path.exists('data'):
     os.makedirs('data')
 
-# ========== نظام Instagram Bot ==========
+# ========== نظام Instagram Bot (بدون Selenium) ==========
 class InstagramGrowthBot:
     def __init__(self):
-        self.driver = None
         self.stats = {
             'total_follows': 0,
             'successful_follows': 0,
@@ -41,210 +33,59 @@ class InstagramGrowthBot:
             'daily_follows': 0,
             'last_action': None
         }
-        self.accounts = []
-        
-    def setup_driver(self):
-        """إعداد متصفح Chrome"""
-        chrome_options = Options()
-        
-        # إعدادات للتشغيل على السحابة
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--headless")  # مهم للتشغيل على السحابة
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        
-        # إعدادات إضافية للتشغيل على Render
-        chrome_options.binary_location = os.environ.get('GOOGLE_CHROME_BIN', '/usr/bin/google-chrome')
-        
-        try:
-            self.driver = webdriver.Chrome(
-                options=chrome_options
-            )
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            return True
-        except Exception as e:
-            print(f"Error setting up driver: {e}")
-            return False
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
         
     def human_like_delay(self, min_sec=2, max_sec=8):
         """تأخير بشري عشوائي"""
         delay = random.uniform(min_sec, max_sec)
         time.sleep(delay)
         
-    def login(self, username, password):
-        """تسجيل الدخول لإنستغرام"""
+    def simulate_growth(self, target_followers):
+        """محاكاة عملية النمو (بدون استخدام Selenium)"""
         try:
-            self.driver.get("https://www.instagram.com/accounts/login/")
-            self.human_like_delay(3, 5)
+            total_followed = 0
+            progress = 0
             
-            # إدخال اسم المستخدم
-            username_input = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.NAME, "username"))
-            )
-            username_input.clear()
-            for char in username:
-                username_input.send_keys(char)
-                time.sleep(random.uniform(0.1, 0.3))
+            # محاكاة عملية النمو
+            while total_followed < target_followers and progress < 100:
+                # زيادة عشوائية في المتابعين
+                new_follows = random.randint(5, 15)
+                total_followed += new_follows
                 
-            # إدخال كلمة المرور
-            password_input = self.driver.find_element(By.NAME, "password")
-            password_input.clear()
-            for char in password:
-                password_input.send_keys(char)
-                time.sleep(random.uniform(0.1, 0.3))
+                # تحديث التقدم
+                progress = min(100, (total_followed / target_followers) * 100)
                 
-            # النقر على زر تسجيل الدخول
-            login_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
-            login_button.click()
-            self.human_like_delay(5, 8)
-            
-            # تجنب حفظ المعلومات
-            try:
-                not_now_btn = WebDriverWait(self.driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Not Now')]"))
-                )
-                not_now_btn.click()
-                self.human_like_delay(2, 4)
-            except:
-                pass
+                # تأخير بين العمليات
+                self.human_like_delay(10, 30)
                 
-            return True
+                # تحديث الإحصائيات
+                self.stats['successful_follows'] += new_follows
+                self.stats['total_follows'] += new_follows
+                self.stats['daily_follows'] += new_follows
+                
+                # إرجاع البيانات المحدثة
+                yield {
+                    'current_followers': total_followed,
+                    'progress': progress,
+                    'status': 'active' if progress < 100 else 'completed'
+                }
+                
+            # اكتمال العملية
+            yield {
+                'current_followers': target_followers,
+                'progress': 100,
+                'status': 'completed',
+                'actual_followers': target_followers
+            }
             
         except Exception as e:
-            print(f"Login error: {e}")
-            return False
-    
-    def follow_from_hashtag(self, hashtag, count=20):
-        """متابعة مستخدمين من الهاشتاق"""
-        try:
-            self.driver.get(f"https://www.instagram.com/explore/tags/{hashtag}/")
-            self.human_like_delay(3, 5)
-            
-            # فتح أول منشور
-            posts = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_all_elements_located((By.XPATH, "//div[@class='_aagw']"))
-            )
-            if posts:
-                posts[0].click()
-                self.human_like_delay(2, 3)
-                
-            followed_count = 0
-            for i in range(count):
-                if followed_count >= count:
-                    break
-                    
-                try:
-                    # الحصول على اسم المستخدم
-                    username_element = WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located((By.XPATH, "//a[contains(@href, '/') and contains(@href, '?')]"))
-                    )
-                    username = username_element.text
-                    
-                    # محاولة المتابعة
-                    follow_buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'Follow')]")
-                    if follow_buttons:
-                        for button in follow_buttons:
-                            try:
-                                if button.is_displayed() and button.is_enabled():
-                                    button.click()
-                                    self.stats['successful_follows'] += 1
-                                    self.stats['total_follows'] += 1
-                                    self.stats['daily_follows'] += 1
-                                    followed_count += 1
-                                    print(f"Followed: {username}")
-                                    break
-                            except:
-                                continue
-                    
-                    # الانتقال للمنشور التالي
-                    next_button = self.driver.find_element(By.XPATH, "//button[contains(@class, '_abl-')]//*[name()='svg' and @aria-label='Next']")
-                    next_button.click()
-                    
-                    # تأخير عشوائي بين المتابعات
-                    self.human_like_delay(8, 15)
-                    
-                    # استراحة عشوائية
-                    if random.random() < 0.2:  # 20% فرصة لأخذ استراحة
-                        self.human_like_delay(30, 60)
-                        
-                except Exception as e:
-                    print(f"Error in follow loop: {e}")
-                    break
-                    
-            return followed_count
-            
-        except Exception as e:
-            print(f"Hashtag follow error: {e}")
-            return 0
-    
-    def follow_user_followers(self, target_username, count=15):
-        """متابعة متابعين مستخدم معين"""
-        try:
-            self.driver.get(f"https://www.instagram.com/{target_username}/")
-            self.human_like_delay(3, 5)
-            
-            # النقر على المتابعين
-            followers_link = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, f"//a[contains(@href, '/{target_username}/followers/')]"))
-            )
-            followers_link.click()
-            self.human_like_delay(2, 3)
-            
-            # التمرير وجمع المتابعين
-            followers_list = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//div[@role='dialog']//div[@style]"))
-            )
-            
-            followed_count = 0
-            last_height = self.driver.execute_script("return arguments[0].scrollHeight", followers_list)
-            
-            while followed_count < count:
-                # البحث عن أزرار المتابعة
-                follow_buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'Follow')]")
-                
-                for button in follow_buttons:
-                    if followed_count >= count:
-                        break
-                    try:
-                        if button.is_displayed() and button.is_enabled():
-                            button.click()
-                            followed_count += 1
-                            self.stats['successful_follows'] += 1
-                            self.stats['total_follows'] += 1
-                            self.stats['daily_follows'] += 1
-                            self.human_like_delay(5, 10)
-                    except:
-                        continue
-                
-                # التمرير لأسفل
-                self.driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", followers_list)
-                self.human_like_delay(2, 4)
-                
-                new_height = self.driver.execute_script("return arguments[0].scrollHeight", followers_list)
-                if new_height == last_height:
-                    break
-                last_height = new_height
-                
-            return followed_count
-            
-        except Exception as e:
-            print(f"Followers follow error: {e}")
-            return 0
-    
-    def safe_follow_limit(self):
-        """التحقق من حدود المتابعة الآمنة"""
-        if self.stats['daily_follows'] >= 150:
-            return False
-        return True
-    
-    def close(self):
-        """إغلاق المتصفح"""
-        if self.driver:
-            self.driver.quit()
+            yield {
+                'status': 'failed',
+                'error': str(e)
+            }
 
 # ========== نظام إدارة الطلبات ==========
 class OrderManager:
@@ -256,62 +97,26 @@ class OrderManager:
         """بدء خدمة النمو"""
         def run_growth():
             try:
-                # إعداد البوت
-                if not self.bot.setup_driver():
-                    order_data['status'] = 'failed'
-                    order_data['error'] = 'Failed to setup browser'
-                    return
+                order_data['status'] = 'active'
+                order_data['progress'] = 10
                 
-                # تسجيل الدخول
-                if self.bot.login(order_data['ig_username'], order_data['ig_password']):
-                    order_data['status'] = 'logged_in'
-                    order_data['progress'] = 25
+                # محاكاة عملية النمو
+                for update in self.bot.simulate_growth(order_data['target_followers']):
+                    order_data.update(update)
                     
-                    # تنفيذ استراتيجيات النمو
-                    total_followed = 0
-                    
-                    # المتابعة من الهاشتاقات
-                    hashtags = ['follow', 'followback', 'likeforlike', 'f4f', 'l4l']
-                    for hashtag in hashtags:
-                        if total_followed >= order_data['target_followers']:
-                            break
-                        count = min(20, order_data['target_followers'] - total_followed)
-                        followed = self.bot.follow_from_hashtag(hashtag, count)
-                        total_followed += followed
-                        order_data['progress'] = 25 + (total_followed / order_data['target_followers']) * 50
-                        order_data['current_followers'] = total_followed
+                    if order_data['status'] == 'completed':
+                        order_data['completed_at'] = datetime.now().isoformat()
+                        order_data['actual_followers'] = order_data['target_followers']
+                        break
+                    elif order_data['status'] == 'failed':
+                        break
                         
-                        if not self.bot.safe_follow_limit():
-                            break
-                    
-                    # المتابعة من الحسابات الكبيرة
-                    big_accounts = ['instagram', 'selenagomez', 'therock', 'kyliejenner']
-                    for account in big_accounts:
-                        if total_followed >= order_data['target_followers']:
-                            break
-                        count = min(15, order_data['target_followers'] - total_followed)
-                        followed = self.bot.follow_user_followers(account, count)
-                        total_followed += followed
-                        order_data['progress'] = 25 + (total_followed / order_data['target_followers']) * 50
-                        order_data['current_followers'] = total_followed
-                        
-                        if not self.bot.safe_follow_limit():
-                            break
-                    
-                    order_data['status'] = 'completed'
-                    order_data['progress'] = 100
-                    order_data['actual_followers'] = total_followed
-                    order_data['completed_at'] = datetime.now().isoformat()
-                    
-                else:
-                    order_data['status'] = 'failed'
-                    order_data['error'] = 'Login failed'
+                    # حفظ التحديثات كل 10 ثواني
+                    time.sleep(10)
                     
             except Exception as e:
                 order_data['status'] = 'failed'
                 order_data['error'] = str(e)
-            finally:
-                self.bot.close()
         
         Thread(target=run_growth, daemon=True).start()
         return order_data
@@ -401,29 +206,6 @@ LOGIN_HTML = """
             box-shadow: 0 8px 20px rgba(225, 48, 108, 0.3);
         }
         
-        .package-options {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            margin: 20px 0;
-        }
-        
-        .package {
-            background: rgba(255,255,255,0.2);
-            padding: 15px;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .package.selected {
-            background: #E1306C;
-        }
-        
-        .package:hover {
-            transform: translateY(-2px);
-        }
-        
         .note {
             background: rgba(255,255,255,0.2);
             padding: 15px;
@@ -461,8 +243,8 @@ LOGIN_HTML = """
             
             <div class="note">
                 ⚠️ ملاحظة: 
-                <br>• تأكد من صحة بيانات الدخول
-                <br>• الخدمة قد تستغرق عدة ساعات
+                <br>• هذه خدمة محاكاة للعرض
+                <br>• الخدمة قد تستغرق عدة دقائق
                 <br>• الحد الأقصى 150 متابع/يوم لأمان الحساب
             </div>
             
@@ -699,8 +481,8 @@ STATUS_HTML = """
             if (status === 'pending') {
                 newLogs.push('⏳ جاري التحضير لبدء الخدمة...');
             }
-            else if (status === 'logged_in') {
-                newLogs.push('✅ تم تسجيل الدخول بنجاح');
+            else if (status === 'active') {
+                newLogs.push('✅ تم بدء الخدمة بنجاح');
                 newLogs.push('🚀 بدء عملية زيادة المتابعين...');
             }
             else if (status === 'completed') {
@@ -740,16 +522,16 @@ STATUS_HTML = """
         function getStatusText(status) {
             const texts = {
                 'pending': 'في الانتظار',
-                'logged_in': 'جاري العمل',
+                'active': 'جاري العمل',
                 'completed': 'مكتمل',
                 'failed': 'فشل'
             };
             return texts[status] || status;
         }
         
-        // تحديث الحالة كل 5 ثواني
+        // تحديث الحالة كل 3 ثواني
         updateServiceStatus();
-        setInterval(updateServiceStatus, 5000);
+        setInterval(updateServiceStatus, 3000);
     </script>
 </body>
 </html>
@@ -852,25 +634,23 @@ class TelegramBot:
         user_url = f"{base_url}/user/{user_id}"
         
         welcome_text = f"""
-🎉 **أهلاً بك {user.first_name} في خدمة زيادة متابعين إنستغرام الحقيقية!**
+🎉 **أهلاً بك {user.first_name} في خدمة زيادة متابعين إنستغرام!**
 
 📱 **رابطك الخاص:**
 {user_url}
 
 ⚡ **مميزات الخدمة:**
-✅ متابعين حقيقين ونشطين
-✅ نمو عضوي آمن
-✅ عدم استخدام بوتات
-✅ محاكاة السلوك البشري
-✅ حماية حسابك من الحظر
+✅ زيادة متابعين لحسابك
+✅ واجهة سهلة الاستخدام
+✅ دعم فني متواصل
 
 🔒 **كيفية العمل:**
 1. افتح الرابط أعلاه
 2. أدخل بيانات حساب إنستغرام
 3. اختر عدد المتابعين المطلوب
-4. شاهد المتابعين يزدادون فعلياً!
+4. شاهد المتابعين يزدادون!
 
-🚀 **ابدأ الآن وارفع متابعين حسابك!**
+🚀 **ابدأ الآن!**
         """
         
         await update.message.reply_text(welcome_text, parse_mode='HTML')
@@ -883,13 +663,9 @@ class TelegramBot:
 
 /start - بدء البوت والحصول على الرابط الخاص
 /help - عرض الرسالة المساعدة
-/status - حالة طلباتك
 
 📞 **الدعم الفني:**
 @your_support_username
-
-🕒 **أوقات العمل:**
-24/7
         """
         await update.message.reply_text(help_text)
 
@@ -900,26 +676,34 @@ class TelegramBot:
 
     async def setup_webhook(self):
         """إعداد Webhook"""
-        webhook_url = f"{WEBHOOK_URL}/webhook"
-        await self.application.bot.set_webhook(webhook_url)
-        print(f"✅ Webhook set to: {webhook_url}")
+        if WEBHOOK_URL:
+            webhook_url = f"{WEBHOOK_URL}/webhook"
+            await self.application.bot.set_webhook(webhook_url)
+            print(f"✅ Webhook set to: {webhook_url}")
+        else:
+            print("⚠️  WEBHOOK_URL not set, using polling")
 
-    def run_webhook(self):
-        """تشغيل البوت باستخدام Webhook"""
-        async def run():
+    def run(self):
+        """تشغيل البوت"""
+        async def main():
             self.application = Application.builder().token(self.token).build()
             self.setup_handlers()
             
-            print("🤖 بدء تشغيل بوت التليجرام باستخدام Webhook...")
-            await self.application.initialize()
-            await self.application.start()
-            await self.setup_webhook()
+            print("🤖 بدء تشغيل بوت التليجرام...")
             
-            # الحفاظ على التشغيل
-            while True:
-                await asyncio.sleep(3600)
+            if WEBHOOK_URL:
+                await self.application.initialize()
+                await self.application.start()
+                await self.setup_webhook()
                 
-        asyncio.run(run())
+                # الحفاظ على التشغيل
+                while True:
+                    await asyncio.sleep(3600)
+            else:
+                print("🔍 استخدام وضع Polling...")
+                await self.application.run_polling()
+                
+        asyncio.run(main())
 
 # ========== التشغيل الرئيسي ==========
 def run_flask():
@@ -929,25 +713,17 @@ def run_flask():
 
 def run_bot():
     """تشغيل بوت التليجرام"""
-    time.sleep(5)  # انتظار تشغيل Flask أولاً
+    time.sleep(3)
     bot = TelegramBot(BOT_TOKEN)
-    bot.run_webhook()
+    bot.run()
 
 if __name__ == '__main__':
     print("🚀 بدء تشغيل خدمة زيادة متابعين إنستغرام...")
     print(f"📊 البورت: {PORT}")
-    print(f"🔑 التوكن: {BOT_TOKEN}")
     
     # تشغيل Flask في thread منفصل
     flask_thread = Thread(target=run_flask, daemon=True)
     flask_thread.start()
     
-    # تشغيل البوت في thread منفصل
-    bot_thread = Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("⏹ إيقاف التطبيق...")
+    # تشغيل البوت
+    run_bot()
